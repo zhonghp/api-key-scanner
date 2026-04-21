@@ -147,18 +147,20 @@ Higher = higher confidence, more calls on your gateway.
 
 ## Which models can it verify?
 
-The tool can only verify models for which we've published signed
-reference fingerprints. Ask in chat:
+Only models for which we've published a signed reference fingerprint.
+The current coverage — with canonical IDs, vendor model names, and the
+source endpoint each fingerprint was collected from — is tracked in
+**[SUPPORTED_MODELS.md](./SUPPORTED_MODELS.md)**. If the model you care
+about isn't listed there, `verify_gateway` will return `inconclusive`
+— the tool doesn't guess.
+
+For the live list at runtime, just ask in chat:
 
 > What models does api-key-scanner currently support?
 
-The agent calls `list_supported_models` and reports back. If the model
-you care about isn't in the list, a verdict against it will come back
-as `inconclusive` — the tool is honest about not guessing.
-
-We add models over time. Check the latest
-[`fingerprint-*` release](https://github.com/zhonghp/api-key-scanner/releases)
-for what's live right now.
+The agent calls `list_supported_models`, which reads the latest
+release's `MANIFEST.json` directly — this will always be accurate even
+if `SUPPORTED_MODELS.md` hasn't been updated yet.
 
 ## What it catches
 

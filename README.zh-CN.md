@@ -137,15 +137,19 @@ Budget：`cheap`（13 个 probe）、`standard`（58 个，默认）、`deep`（
 
 ## 能验证哪些模型
 
-工具只能验证我们发布了签名指纹的模型。想知道当前覆盖哪些，直接在聊天里问：
+只能验证我们发布了签名指纹的模型。当前覆盖情况——包括 canonical ID、
+厂商模型名、每份指纹是从哪个 endpoint 采的——记在
+**[SUPPORTED_MODELS.zh-CN.md](./SUPPORTED_MODELS.zh-CN.md)** 里。你想
+验的模型不在列表里时，`verify_gateway` 会返回 `inconclusive`——工具
+不瞎猜。
+
+运行时想看实时列表，直接在聊天里问：
 
 > api-key-scanner 现在能验证哪些模型？
 
-agent 会调 `list_supported_models` 告诉你。如果你想验的模型不在列表里，
-verdict 会返回 `inconclusive`——工具不瞎猜。
-
-我们会持续新增模型，最新名单见
-[`fingerprint-*` release](https://github.com/zhonghp/api-key-scanner/releases)。
+agent 会调 `list_supported_models`，它读的是最新 release 里的
+`MANIFEST.json`——哪怕 `SUPPORTED_MODELS.md` 还没同步更新，这条路径
+拿到的始终是准确的。
 
 ## 能抓什么
 

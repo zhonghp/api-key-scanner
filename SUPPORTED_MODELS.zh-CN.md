@@ -1,0 +1,46 @@
+# 支持的模型
+
+工具当前能对照签名参考指纹验证的模型列表。
+
+- **最近更新**：2026-04-21
+- **当前 release**：[`fingerprint-2026-04-21-signed`](https://github.com/zhonghp/api-key-scanner/releases/tag/fingerprint-2026-04-21-signed)
+- **签名**：Sigstore keyless，绑定到本 repo 的 `weekly-fingerprint-collect.yml` workflow
+
+**[English](./SUPPORTED_MODELS.md)**
+
+## 覆盖情况
+
+| Canonical ID | 厂商接受的 `model` 字段 | 采集 endpoint（我们从哪里拉的） | 样本数 |
+|---|---|---|---|
+| `openai/gpt-5.4` | `gpt-5.4` | `https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai` | 58 |
+| `openai/gpt-5.4-mini` | `gpt-5.4-mini` | `https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai` | 57 |
+
+"Canonical ID" 就是你调 `verify_gateway` 时 `claimed_model` 参数要填的
+值。像 `gpt-5.4`、`gpt5.4`、`openai/gpt-5.4` 这些别名通过 `aliases.json`
+都会归一到同一个 canonical ID。
+
+"采集 endpoint" 是我们跑采集流水线时打的 gateway——这里拿到的响应就是
+参考指纹，拿来跟你自己 endpoint 的响应比对。理想情况这里就是厂商直连 API
+（参考数据就是 ground truth）；不是的话 notes 里会标注。
+
+## 为什么你的模型不在列表里
+
+`verify_gateway` 只对表里的模型返回有意义的 verdict。如果你用其它
+`claimed_model` 调它，会得到 `inconclusive` 以及说明"当前覆盖哪些"的
+disclaimer。
+
+- 厂商出了新模型——我们有能力采集、验证后才会加进去。需要的话
+  [提个 issue](https://github.com/zhonghp/api-key-scanner/issues/new)
+  告诉我们想要哪个
+- 别名问题——你想验的模型可能用了你想不到的 canonical ID。直接在
+  聊天里问：*"api-key-scanner 支持哪些模型？"* agent 会调
+  `list_supported_models` 把实时列表打出来
+
+## 这份文件怎么维护
+
+目前是手工维护——每次 weekly 指纹 release 里模型集合变了，同一笔提交
+里更新这份文件。未来打算在 `weekly-fingerprint-collect.yml` 里跑完
+采集后自动重新生成并 commit。
+
+运行时的权威来源始终是最新 `fingerprint-*` GitHub Release 里的
+`MANIFEST.json`——`list_supported_models` 读的就是它，不会过期。
