@@ -62,12 +62,13 @@ detectors:
   d1_llmmap:     score, top_guess
   d2_met:        score, p_value
   d4_metadata:   score, notes
-cost_usd:      $0.03 (cheap) / $0.30 (standard) / $1.50 (deep)
 ```
 
-Three budget levels available: `cheap` (~8 probes), `standard`
-(~30 probes, default), `deep` (~100 probes). Higher budget = higher
-confidence, more calls on your gateway.
+Three budget levels available: `cheap` (~13 probes), `standard`
+(~58 probes, default), `deep` (~92 probes). Higher budget = higher
+confidence, more calls on your gateway. The tool doesn't report a
+dollar figure — costs vary too widely across vendors and pricing
+tiers; check your provider's billing page.
 
 **Trust score cutoffs:**
 

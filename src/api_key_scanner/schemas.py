@@ -114,7 +114,6 @@ class Verdict(BaseModel):
 
     num_probes_sent: int = 0
     num_probes_failed: int = 0
-    cost_usd_estimate: float = 0.0
     duration_ms: int = 0
 
     disclaimer: str = (

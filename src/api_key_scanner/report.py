@@ -39,8 +39,6 @@ def render_markdown(v: Verdict) -> str:
         f"- **Probes**: {v.num_probes_sent} sent"
         + (f", {v.num_probes_failed} failed" if v.num_probes_failed else "")
     )
-    if v.cost_usd_estimate > 0:
-        lines.append(f"- **Estimated cost**: ~${v.cost_usd_estimate:.2f}")
     if v.duration_ms:
         lines.append(f"- **Duration**: {v.duration_ms / 1000:.1f}s")
     lines.append("")

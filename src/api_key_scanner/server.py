@@ -118,9 +118,9 @@ async def verify_gateway(
         claimed_model: The model the gateway claims to serve, e.g. "claude-opus-4".
         api_key_env_var: NAME of env var holding the key (NOT the key itself).
         budget: Probe budget.
-            - "cheap": ~8 probes, ~$0.02-0.10
-            - "standard": ~30 probes, ~$0.20-1.50 (default)
-            - "deep": ~100 probes, ~$1-5
+            - "cheap": ~13 probes, quick spot-check
+            - "standard": ~58 probes (default), reasonable confidence
+            - "deep": ~92 probes, high confidence
         offline: If True, skip any network-dependent fingerprint fetch (M3).
         include_raw_responses: Embed raw gateway outputs in evidence (verbose).
 
@@ -237,9 +237,6 @@ async def verify_gateway(
     # 8. Evidence
     evidence = _build_evidence(responses, detectors, include_raw=include_raw_responses)
 
-    # 9. Cost estimate (best effort)
-    cost_usd = _estimate_cost_usd(responses, canonical_id)
-
     num_failed = sum(1 for r in responses if r.error)
 
     verdict = Verdict(
@@ -256,7 +253,6 @@ async def verify_gateway(
         mcp_version=__version__,
         num_probes_sent=len(responses),
         num_probes_failed=num_failed,
-        cost_usd_estimate=cost_usd,
         duration_ms=_elapsed_ms(t_start),
     )
     return verdict.model_dump()
@@ -396,38 +392,6 @@ def _find_detector(detectors: list[DetectorResult], name: str) -> DetectorResult
         if d.name == name:
             return d
     return None
-
-
-# Rough per-1K-token rates for the 10 Phase 1 models, USD. Kept coarse on
-# purpose — this is just for the cost_usd_estimate line in the report; users
-# should treat it as ±50%.
-_ROUGH_RATES_USD_PER_1K: dict[str, tuple[float, float]] = {
-    # (input_rate, output_rate)
-    "anthropic/claude-opus-4": (15.0, 75.0),
-    "anthropic/claude-sonnet-4": (3.0, 15.0),
-    "anthropic/claude-haiku-4.5": (1.0, 5.0),
-    "openai/gpt-5": (10.0, 30.0),
-    "openai/gpt-5-mini": (0.5, 2.0),
-    "openai/gpt-5.4": (10.0, 30.0),
-    "openai/gpt-5.4-mini": (0.5, 2.0),
-    "openai/gpt-4o": (2.5, 10.0),
-    "openai/gpt-4o-mini": (0.15, 0.6),
-    "google/gemini-2.5-pro": (3.5, 10.5),
-    "google/gemini-2.5-flash": (0.3, 2.5),
-    "meta/llama-3.3-70b": (0.5, 0.7),
-}
-
-
-def _estimate_cost_usd(responses: list[ProbeResponse], canonical_id: str) -> float:
-    rates = _ROUGH_RATES_USD_PER_1K.get(canonical_id)
-    if rates is None:
-        return 0.0
-    in_rate, out_rate = rates
-    # We don't track input tokens per-response. Assume ~50 input tokens per probe
-    # (short prompts). Output tokens we have from usage field when gateway returns it.
-    total_in = 50 * len([r for r in responses if not r.error])
-    total_out = sum((r.output_tokens or 0) for r in responses)
-    return round(total_in / 1000 * in_rate + total_out / 1000 * out_rate, 3)
 
 
 # Re-export for callers that want to build their own probes from outside

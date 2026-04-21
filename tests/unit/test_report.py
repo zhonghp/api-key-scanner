@@ -19,7 +19,6 @@ def _basic_verdict(**overrides) -> Verdict:
         "mcp_version": "0.1.0",
         "num_probes_sent": 30,
         "num_probes_failed": 1,
-        "cost_usd_estimate": 0.47,
         "duration_ms": 28500,
     }
     defaults.update(overrides)
@@ -73,9 +72,3 @@ def test_report_includes_disclaimer_footer() -> None:
     md = render_markdown(v)
     # Disclaimer is always present (default in Verdict)
     assert v.disclaimer.split(".")[0] in md  # first sentence
-
-
-def test_report_no_cost_line_when_zero() -> None:
-    v = _basic_verdict(cost_usd_estimate=0.0)
-    md = render_markdown(v)
-    assert "Estimated cost" not in md

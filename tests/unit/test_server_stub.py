@@ -73,7 +73,6 @@ async def test_verdict_has_stable_shape(monkeypatch: pytest.MonkeyPatch) -> None
         "mcp_version",
         "num_probes_sent",
         "num_probes_failed",
-        "cost_usd_estimate",
         "duration_ms",
         "disclaimer",
     ):

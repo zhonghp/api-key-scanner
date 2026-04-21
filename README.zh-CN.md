@@ -60,11 +60,12 @@ detectors:
   d1_llmmap:     分数、最佳猜测模型
   d2_met:        分数、p_value
   d4_metadata:   分数、备注
-cost_usd:      $0.03 (cheap) / $0.30 (standard) / $1.50 (deep)
 ```
 
-三档预算：`cheap`（约 8 个 probe）、`standard`（约 30 个，默认）、
-`deep`（约 100 个）。预算越高置信度越高，但打到 gateway 的请求也越多。
+三档预算：`cheap`（约 13 个 probe）、`standard`（约 58 个，默认）、
+`deep`（约 92 个）。预算越高置信度越高，但打到 gateway 的请求也越多。
+工具不会给 dollar 数字——不同厂商、不同定价档差异太大，实际花了多少
+以你 provider 账单为准。
 
 **Trust score 分界：**
 

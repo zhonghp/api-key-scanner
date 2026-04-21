@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] — 2026-04-21
+
+### Removed
+- **Cost estimation**. The `cost_usd_estimate` field is gone from
+  `Verdict`, along with the hardcoded `_ROUGH_RATES_USD_PER_1K`
+  table and the `_estimate_cost_usd` helper. The estimate conflated
+  a guessed fixed-50-input-tokens-per-probe assumption with
+  hand-maintained vendor prices, giving users a number that could
+  easily be wrong by 3-5× and quietly drift as vendors changed
+  pricing. Users should consult their provider's billing page
+  instead.
+- Budget docstrings and skill copy also drop all `$X.XX` figures.
+
 ## [0.1.2] — 2026-04-21
 
 ### Added

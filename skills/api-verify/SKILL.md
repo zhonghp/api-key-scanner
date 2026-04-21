@@ -44,9 +44,9 @@ user's target gateway.
    - `api_key_env_var`: the NAME of the env var, e.g. `MY_KEY`
 
 2. (Optional) Ask about budget:
-   - `cheap` (~$0.05): 8 probes, quick spot-check
-   - `standard` (~$0.5, default): 30 probes, reasonable confidence
-   - `deep` (~$3): 100 probes, high confidence
+   - `cheap`: 13 probes, quick spot-check
+   - `standard` (default): 58 probes, reasonable confidence
+   - `deep`: 92 probes, high confidence
 
 3. Call MCP tool `verify_gateway` with these parameters.
 
@@ -59,8 +59,9 @@ user's target gateway.
 
 5. Always surface:
    - The `disclaimer` field (Phase 1 limitations)
-   - Approximate cost (`cost_usd_estimate`)
    - Which detectors contributed most to the verdict
+   - `num_probes_sent` / `num_probes_failed` so the user can judge
+     how reliable the verdict is
 
 # Reference data — no pre-setup required
 

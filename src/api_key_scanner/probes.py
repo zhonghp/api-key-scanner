@@ -26,9 +26,9 @@ logger = logging.getLogger(__name__)
 
 _BUDGET_PROBE_COUNT: dict[Budget, dict[str, int]] = {
     # Samples per run = (llmmap_probes × 1) + (met_probes × 10 samples each)
-    "cheap": {"llmmap": 3, "met": 1},  # 13 total calls, ~$0.05 on gpt-4o
-    "standard": {"llmmap": 8, "met": 5},  # 58 total calls, ~$0.30 on gpt-4o
-    "deep": {"llmmap": 12, "met": 8},  # 92 total calls, ~$0.50 on gpt-4o
+    "cheap": {"llmmap": 3, "met": 1},  # 13 total calls
+    "standard": {"llmmap": 8, "met": 5},  # 58 total calls
+    "deep": {"llmmap": 12, "met": 8},  # 92 total calls
 }
 
 
