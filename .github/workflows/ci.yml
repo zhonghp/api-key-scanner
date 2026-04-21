@@ -45,13 +45,21 @@ jobs:
         run: uv run pytest -q
 
       - name: mcp protocol smoke test
-        # Send an initialize + tools/list and verify the server responds
+        # Send an initialize + tools/list and verify the server responds.
+        # Keep stdin open for 2s past the last message so the server has time
+        # to flush the tools/list response before EOF triggers shutdown
+        # (Python 3.10 import times push this past the race threshold).
+        # PYTHONUNBUFFERED=1 forces line-by-line stdout flush.
+        env:
+          PYTHONUNBUFFERED: "1"
         run: |
-          cat <<'EOF' | uv run api-key-scanner-mcp > /tmp/mcp-out.txt 2>&1 || true
+          ( cat <<'EOF'
           {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}
           {"jsonrpc":"2.0","method":"notifications/initialized"}
           {"jsonrpc":"2.0","id":2,"method":"tools/list"}
           EOF
+          sleep 2
+          ) | uv run api-key-scanner-mcp > /tmp/mcp-out.txt 2>&1 || true
           grep -q '"name":"verify_gateway"' /tmp/mcp-out.txt || { cat /tmp/mcp-out.txt; exit 1; }
 
   validate-fingerprints:
