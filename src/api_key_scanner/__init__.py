@@ -7,4 +7,4 @@ fingerprint data. Your API key never leaves your machine.
 See docs/2026-04-20-phase1-技术实现方案.md for the full Phase 1 design.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"

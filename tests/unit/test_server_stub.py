@@ -146,3 +146,31 @@ def test_dotenv_loader_missing_file_warns_not_crash(
     monkeypatch.setenv("APIGUARD_DOTENV_PATH", str(tmp_path / "does-not-exist.env"))
     # Should not raise
     _load_dotenv_if_requested()
+
+
+def test_dotenv_loader_uses_default_path_when_env_unset(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """When APIGUARD_DOTENV_PATH is unset, ~/.api-key-scanner/.env is loaded."""
+    from api_key_scanner import server
+
+    monkeypatch.delenv("APIGUARD_DOTENV_PATH", raising=False)
+    monkeypatch.delenv("DEFAULT_DOTENV_TEST_KEY", raising=False)
+
+    fake_home_env = tmp_path / ".env"
+    fake_home_env.write_text("DEFAULT_DOTENV_TEST_KEY=from_default\n")
+    monkeypatch.setattr(server, "_DEFAULT_DOTENV_PATH", fake_home_env)
+
+    server._load_dotenv_if_requested()
+    assert os.environ.get("DEFAULT_DOTENV_TEST_KEY") == "from_default"
+
+
+def test_dotenv_loader_skips_default_when_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """No env var AND no default file -> silent no-op, no error."""
+    from api_key_scanner import server
+
+    monkeypatch.delenv("APIGUARD_DOTENV_PATH", raising=False)
+    monkeypatch.setattr(server, "_DEFAULT_DOTENV_PATH", tmp_path / "does-not-exist.env")
+    server._load_dotenv_if_requested()  # must not raise

@@ -20,6 +20,14 @@ Invoke when the user's request matches any of:
 **NEVER ask the user to paste their API key into chat.** The key must stay
 in their local shell environment (e.g. a `.env` file or `export`).
 
+If the user reports the server can't read their API key after `export`:
+Claude Code snapshotted the env when it spawned the MCP subprocess.
+Tell them to either (a) write the key into `~/.api-key-scanner/.env`
+(a file the server auto-loads at startup) and restart Claude Code, or
+(b) relaunch Claude Code from a shell where the var is already
+exported. Shell exports after Claude Code is running never reach the
+MCP subprocess.
+
 Ask only for the **NAME of the env var** holding the key (e.g. `MY_KEY`,
 not the value). If the user volunteers the key value, tell them to unset
 it from the conversation and provide only the variable name instead.

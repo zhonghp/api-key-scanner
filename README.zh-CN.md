@@ -161,6 +161,28 @@ release，**在本地用 Sigstore 校验签名**（比对我们那个 weekly wor
 离线/内网场景：自己下载一个 release 到本地，把 `APIGUARD_FINGERPRINT_DIR`
 指过去，整个网络 fetch 就跳过了。
 
+## 传入 gateway API key
+
+Claude Code 启动时 fork 出 MCP 子进程，之后就不再读 shell env 了。所以
+你在 terminal 里 `export OPENAI_API_KEY=...`（已经启动 Claude Code 之后），
+子进程读不到——这是 MCP 的 stdio 设计限制。避开的两种方式：
+
+**推荐：`~/.api-key-scanner/.env`**——server 启动时自动加载这个文件
+（完全不用配环境变量）：
+
+```bash
+mkdir -p ~/.api-key-scanner
+cat > ~/.api-key-scanner/.env <<'EOF'
+OPENAI_API_KEY=sk-your-gateway-key
+EOF
+```
+
+shell env 和 `.mcp.json` 注入的 env 总是优先于这个文件，所以它只是
+兜底，不会劫持你显式设置的值。改完 `.env` 要重启 Claude Code 才生效。
+
+**显式覆盖**：如果想用其他路径，`.mcp.json` 的 `env` 块里设
+`APIGUARD_DOTENV_PATH=/path/to/.env`。
+
 ## 环境变量速查
 
 | 名称 | 作用 | 默认 | 在哪用 |
@@ -174,7 +196,7 @@ release，**在本地用 Sigstore 校验签名**（比对我们那个 weekly wor
 | `APIGUARD_FINGERPRINT_AUTO_UPDATE` | 设 `0` 则始终用本地缓存的 tag | `1` | MCP server |
 | `APIGUARD_OFFLINE` | 设 `1` 完全不走网络；没缓存就失败 | `0` | MCP server |
 | `APIGUARD_INSECURE_SSL` | 设 `1` 跳过 SSL 校验（自签证书内网场景） | 关 | gateway 客户端 |
-| `APIGUARD_DOTENV_PATH` | 绝对路径；MCP 启动时加载该 `.env` | 关 | MCP server |
+| `APIGUARD_DOTENV_PATH` | 绝对路径；MCP 启动时加载该 `.env`。未设时如果 `~/.api-key-scanner/.env` 存在会自动加载。 | 关 | MCP server |
 | `APIGUARD_LOG_LEVEL` | 设 `DEBUG` 把网络重试/错误打到 stderr | `INFO` | MCP server |
 
 在 Claude Code 里，所有 env 必须通过 `.mcp.json` 的 `env` 块传进子进程——

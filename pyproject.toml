@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "api-key-scanner-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "Verify LLM API gateway authenticity. Local MCP server, your API key stays on your machine."
 readme = "README.md"
 license = { file = "LICENSE" }

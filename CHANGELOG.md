@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-04-21
+
+### Added
+- **Auto-load `~/.api-key-scanner/.env`** at MCP server startup when
+  no `APIGUARD_DOTENV_PATH` is set. Sidesteps the Claude Code env
+  snapshot problem: shell exports performed after Claude Code is
+  running never reach the MCP subprocess, but a dotfile that the
+  server reads on each startup does. Shell env still wins over the
+  file — this is a fallback, not an override.
+
 ## [0.1.1] — 2026-04-21
 
 ### Added

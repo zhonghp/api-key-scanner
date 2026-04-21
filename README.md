@@ -167,6 +167,30 @@ A failed signature check aborts the fetch — the server degrades to
 Air-gapped / offline usage: pre-download a release locally and point
 `APIGUARD_FINGERPRINT_DIR` at it to skip the network entirely.
 
+## Supplying your gateway API key
+
+Claude Code spawns the MCP subprocess once at app launch and never
+re-reads shell env after that. If you `export OPENAI_API_KEY=...` in
+a terminal *after* Claude Code is already running, the server will
+not see it. Two ways to avoid this:
+
+**Easy: `~/.api-key-scanner/.env`** — on startup the server
+automatically loads this file if it exists (no env var needed):
+
+```bash
+mkdir -p ~/.api-key-scanner
+cat > ~/.api-key-scanner/.env <<'EOF'
+OPENAI_API_KEY=sk-your-gateway-key
+EOF
+```
+
+Shell env and `.mcp.json`-injected env always win over the file, so
+this is a fallback, not a hijack. Restart Claude Code to pick up any
+changes.
+
+**Explicit override**: set `APIGUARD_DOTENV_PATH=/path/to/.env` via
+`.mcp.json`'s `env` block when you want a different location.
+
 ## Environment variables
 
 | Name | Purpose | Default | Used by |
@@ -180,7 +204,7 @@ Air-gapped / offline usage: pre-download a release locally and point
 | `APIGUARD_FINGERPRINT_AUTO_UPDATE` | `0` to stick with whatever's cached | `1` | MCP server |
 | `APIGUARD_OFFLINE` | `1` to forbid network fetches; use cache or fail | `0` | MCP server |
 | `APIGUARD_INSECURE_SSL` | `1` to skip SSL verification (self-signed internal deploys) | off | gateway client |
-| `APIGUARD_DOTENV_PATH` | Absolute path; MCP loads this `.env` at startup | off | MCP server |
+| `APIGUARD_DOTENV_PATH` | Absolute path; MCP loads this `.env` at startup. If unset, `~/.api-key-scanner/.env` is auto-loaded when it exists. | off | MCP server |
 | `APIGUARD_LOG_LEVEL` | `DEBUG` to log network retries / errors to stderr | `INFO` | MCP server |
 
 For Claude Code, wire everything via `.mcp.json`'s `env` block — the MCP

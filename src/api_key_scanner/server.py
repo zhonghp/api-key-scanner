@@ -434,36 +434,49 @@ def _estimate_cost_usd(responses: list[ProbeResponse], canonical_id: str) -> flo
 FingerprintEntry = FingerprintEntry  # re-export for type access
 
 
+_DEFAULT_DOTENV_PATH = Path.home() / ".api-key-scanner" / ".env"
+
+
 def _load_dotenv_if_requested() -> None:
-    """Opt-in loading of a `.env` file at MCP startup.
+    """Load a `.env` file at MCP startup.
 
-    Activated by the `APIGUARD_DOTENV_PATH` env var (usually set via the
-    `.mcp.json` `env` block). When active:
-      - Reads the given path as a dotenv file
-      - Populates os.environ with its entries, **without** overriding values
-        that are already set (so `.mcp.json` env + shell env always win)
+    Resolution order:
+      1. `APIGUARD_DOTENV_PATH` env var if set (usually from `.mcp.json`'s
+         `env` block)
+      2. `~/.api-key-scanner/.env` if that file exists
 
-    We deliberately require an explicit path rather than searching for
-    `.env` in cwd, because MCP subprocesses have unpredictable cwd when
-    spawned by different agents (Claude Code, opencode, Cursor, …).
+    When either path loads, its entries populate os.environ **without**
+    overriding values already set — so shell exports and `.mcp.json` env
+    always win. This lets a user stash their gateway API key in a
+    predictable place and not worry about the shell-env-vs-subprocess
+    snapshot problem that plagues MCP clients (Claude Code spawns the
+    server once at app launch; later `export VAR=...` in a terminal
+    never reaches it).
+
+    We deliberately avoid scanning cwd — MCP subprocesses have
+    unpredictable cwd across Claude Code / opencode / Cursor.
     """
     raw = os.environ.get("APIGUARD_DOTENV_PATH", "").strip()
-    if not raw:
-        return
-
-    path = Path(raw).expanduser()
-    if not path.exists():
-        logger.warning("APIGUARD_DOTENV_PATH=%s but file does not exist; skipping", path)
+    if raw:
+        path = Path(raw).expanduser()
+        source = "APIGUARD_DOTENV_PATH"
+        if not path.exists():
+            logger.warning("%s=%s but file does not exist; skipping", source, path)
+            return
+    elif _DEFAULT_DOTENV_PATH.is_file():
+        path = _DEFAULT_DOTENV_PATH
+        source = "default ~/.api-key-scanner/.env"
+    else:
         return
 
     try:
         from dotenv import load_dotenv
     except ImportError:
-        logger.warning("APIGUARD_DOTENV_PATH set but python-dotenv not available")
+        logger.warning("dotenv requested (%s) but python-dotenv not available", source)
         return
 
     load_dotenv(dotenv_path=path, override=False)
-    logger.info("loaded env from %s", path)
+    logger.info("loaded env from %s (%s)", path, source)
 
 
 def run() -> None:
