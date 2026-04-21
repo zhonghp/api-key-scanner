@@ -1,301 +1,151 @@
 # api-key-scanner
 
-> Verify whether an LLM API gateway is actually serving the claimed model.
-> Your API key stays on your machine.
+> Verify whether an LLM API gateway is actually serving the claimed
+> model. Your API key never leaves your machine.
 
-**[简体中文](./README.zh-CN.md)**
+**[简体中文](./README.zh-CN.md)** · Contributing? See **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
 
-`api-key-scanner` is a local [MCP](https://modelcontextprotocol.io) server
-shipped as a [Claude Code Plugin](https://code.claude.com/docs/en/plugins).
-It runs probe prompts against a target gateway, compares the responses
-against signed public reference fingerprints of known models, and returns
-a trust score — all locally, no backend, no telemetry.
-
-## Why this exists
-
-LLM API middlemen ("shadow APIs" / 中转站) are a growing market. An academic
-audit of 17 shadow APIs found [45.83% failed model-identity
-verification](https://arxiv.org/abs/2603.01919). Existing third-party
-verifiers (e.g. hvoy.ai) require users to hand over their upstream API keys,
-which is a massive security risk.
-
-`api-key-scanner` solves this without asking for your key:
-
-- 🔒 **Your API key never leaves your machine.** The MCP server reads it
-  from a local env var you specify *by name*.
-- 🧾 **Zero backend.** Probes and fingerprints come from signed GitHub
-  Releases. No server to trust, no telemetry.
-- 📖 **Fully open-source.** Python code you can audit; Sigstore keyless
-  signatures you can verify on the fingerprint data.
+`api-key-scanner` is a [Claude Code Plugin](https://code.claude.com/docs/en/plugins)
+that adds a `verify_gateway` tool via a local MCP server. Ask it in
+natural language, it runs a probe set against the endpoint you name,
+compares the responses to publicly-signed reference fingerprints of
+real vendor models, and returns a trust score. All computation happens
+on your machine; the only outbound traffic is (1) to the gateway
+you're checking and (2) to GitHub Releases for the reference data.
 
 ---
 
-## Quick start
+## Install
 
-### Prerequisites
+In Claude Code:
 
-- Python ≥ 3.10 and [uv](https://docs.astral.sh/uv/)
-- At least one LLM API key (used both to build a reference fingerprint
-  and to verify a target endpoint)
-
-### 1. Install
-
-```bash
-git clone https://github.com/zhonghp/api-key-scanner.git
-cd api-key-scanner
-uv sync --all-extras
 ```
-
-### 2. Configure `.env`
-
-```bash
-cp .env.example .env
-# Edit .env with your real values:
-#   OPENAI_API_KEY=sk-...
-#   MODEL_ID=gpt-4o
-#   OPENAI_BASE_URL=https://api.openai.com/v1
-```
-
-### 3. Collect a reference fingerprint (one-time per model)
-
-```bash
-uv run python scripts/bootstrap_fingerprints.py --budget cheap
-# writes ./fingerprints/openai/gpt-4o.jsonl
-
-# Collect a second model so D1 has something to compare against
-MODEL_ID=gpt-4o-mini uv run python scripts/bootstrap_fingerprints.py --budget cheap
-```
-
-### 4. Verify a gateway — three modes
-
-**Mode A · Claude Code plugin (recommended)**
-
-```text
 /plugin marketplace add zhonghp/api-key-scanner
 /plugin install api-key-scanner@zhonghp-api-key-scanner
 ```
 
-Then ask in natural language:
-> Verify whether https://some-gateway.com/v1 is really gpt-4o. My key is
-> in env var OPENAI_API_KEY.
-
-**Mode B · raw stdio MCP** (for debugging; no agent needed):
-
-```bash
-export APIGUARD_FINGERPRINT_DIR=$(pwd)/fingerprints
-cat <<'EOF' | uv run api-key-scanner-mcp 2>/dev/null
-{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"x","version":"0"}}}
-{"jsonrpc":"2.0","method":"notifications/initialized"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"verify_gateway","arguments":{"endpoint_url":"https://api.openai.com/v1","claimed_model":"gpt-4o","api_key_env_var":"OPENAI_API_KEY","budget":"cheap"}}}
-EOF
-```
-
-**Mode C · Python** (for scripting / tests):
-
-```python
-import asyncio
-from dotenv import load_dotenv
-load_dotenv()                         # required for SSL_CERT_FILE etc to propagate
-
-from api_key_scanner.server import verify_gateway
-
-async def main():
-    verdict = await verify_gateway(
-        endpoint_url="https://api.openai.com/v1",
-        claimed_model="gpt-4o",
-        api_key_env_var="OPENAI_API_KEY",
-        budget="cheap",
-    )
-    print(verdict["verdict"], verdict["trust_score"])
-
-asyncio.run(main())
-```
-
----
-
-## How it works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Claude Code / opencode / Cursor / any MCP client           │
-│         ↓ spawn stdio subprocess                             │
-│  api-key-scanner-mcp  (local Python, reads your .env key)   │
-│         ↓ run probes                                         │
-│  Target gateway  (the one you're verifying)                  │
-│         ↓ collect responses                                  │
-│  D1 LLMmap  +  D2 MET (MMD²)  +  D4 Metadata                │
-│         ↓ Bayesian fusion                                    │
-│  Verdict { trust_score, verdict, detectors, evidence }       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Three complementary detectors run locally:
-
-- **D1 · LLMmap** — char-n-gram cosine nearest-neighbor classification
-  against reference fingerprints. Catches cross-family substitution
-  (Opus→Llama, GPT→Claude, etc.). Based on [LLMmap (USENIX
-  Sec'25)](https://arxiv.org/abs/2407.15847).
-- **D2 · Model Equality Testing** — biased MMD² two-sample test with a
-  string kernel + permutation p-values. Catches distribution drift. Based
-  on [MET (ICLR'25)](https://arxiv.org/abs/2410.20247).
-- **D4 · Metadata** — `system_fingerprint` stability, tokenizer consistency,
-  latency envelope. Catches cache-replay and backend swaps.
-
-A Bayesian fusion (`prior=0.85`, weights `d1=0.45, d2=0.40, d4=0.15`)
-produces a single `trust_score ∈ [0, 1]` and a verdict label:
-
-- `>= 0.90` → `ok`
-- `0.70 – 0.90` → `suspicious`
-- `< 0.70` → `likely_substituted`
-- when detectors degrade → `inconclusive`
-
----
-
-## Fingerprint data
-
-On the first `verify_gateway` call, the MCP server downloads the latest
-`fingerprint-YYYY-MM-DD` release from `github.com/zhonghp/api-key-scanner`,
-**verifies its Sigstore signature locally** against our weekly workflow's
-identity, sha256-checks each `.jsonl` against `MANIFEST.json`, and caches
-the verified files under `~/.cache/api-key-scanner/fingerprints/<tag>/`
-(using `platformdirs`). Subsequent calls in the same process reuse the
-cache; new server instances check for a newer tag and auto-upgrade.
-
-A failed signature check aborts the fetch — the server degrades to
-`inconclusive` rather than ship unverified data.
-
-Air-gapped / offline usage: pre-download a release locally and point
-`APIGUARD_FINGERPRINT_DIR` at it to skip the network entirely.
+That's everything. The server auto-downloads signed reference
+fingerprints from our GitHub Releases the first time you use it — no
+manual setup.
 
 ## Supplying your gateway API key
 
-Claude Code spawns the MCP subprocess once at app launch and never
-re-reads shell env after that. If you `export OPENAI_API_KEY=...` in
-a terminal *after* Claude Code is already running, the server will
-not see it. Two ways to avoid this:
-
-**Easy: `~/.api-key-scanner/.env`** — on startup the server
-automatically loads this file if it exists (no env var needed):
+The MCP server needs to read your gateway's API key to call the
+endpoint. It does **not** accept keys in chat. Put your key in
+`~/.api-key-scanner/.env`:
 
 ```bash
 mkdir -p ~/.api-key-scanner
 cat > ~/.api-key-scanner/.env <<'EOF'
-OPENAI_API_KEY=sk-your-gateway-key
+MY_GATEWAY_KEY=sk-your-gateway-key
 EOF
 ```
 
-Shell env and `.mcp.json`-injected env always win over the file, so
-this is a fallback, not a hijack. Restart Claude Code to pick up any
-changes.
+The server auto-loads this file on startup. Shell `export` works too,
+but only if you set it **before** launching Claude Code (Claude Code
+snapshots env at launch and won't see later `export`s).
 
-**Explicit override**: set `APIGUARD_DOTENV_PATH=/path/to/.env` via
-`.mcp.json`'s `env` block when you want a different location.
+## Use it
 
-## Environment variables
+Just ask in natural language:
 
-| Name | Purpose | Default | Used by |
-|---|---|---|---|
-| `OPENAI_API_KEY` (or your name) | Gateway API key — value read via `os.environ` | — | bootstrap, MCP |
-| `OPENAI_BASE_URL` | OpenAI-compat endpoint for bootstrap | — | bootstrap only |
-| `MODEL_ID` | Model name the vendor accepts | — | bootstrap only |
-| `APIGUARD_FINGERPRINT_DIR` | Explicit local fingerprint dir; skips the GitHub fetch | — | MCP server |
-| `APIGUARD_FINGERPRINT_RELEASE` | Pin to a specific `fingerprint-*` release tag | latest | MCP server |
-| `APIGUARD_FINGERPRINT_REPO` | `owner/repo` to pull fingerprint releases from | `zhonghp/api-key-scanner` | MCP server |
-| `APIGUARD_FINGERPRINT_AUTO_UPDATE` | `0` to stick with whatever's cached | `1` | MCP server |
-| `APIGUARD_OFFLINE` | `1` to forbid network fetches; use cache or fail | `0` | MCP server |
-| `APIGUARD_INSECURE_SSL` | `1` to skip SSL verification (self-signed internal deploys) | off | gateway client |
-| `APIGUARD_DOTENV_PATH` | Absolute path; MCP loads this `.env` at startup. If unset, `~/.api-key-scanner/.env` is auto-loaded when it exists. | off | MCP server |
-| `APIGUARD_LOG_LEVEL` | `DEBUG` to log network retries / errors to stderr | `INFO` | MCP server |
+> 帮我验证下 `https://api.example.com/v1` 是不是真的 gpt-4o，
+> 我的 key 在 `MY_GATEWAY_KEY` 环境变量里。
 
-For Claude Code, wire everything via `.mcp.json`'s `env` block — the MCP
-subprocess does not inherit your shell env when the agent is launched as
-a GUI app.
+The tool returns a verdict like:
 
----
-
-## Phase 1 scope
-
-**✅ Covered**
-
-| ID | Attack | Confidence |
-|---|---|---|
-| A1 | Cross-family substitution (Opus → Llama, etc.) | high |
-| A5 | System-prompt tampering / injection | medium |
-| A7 | Cached-replay static answers | high |
-
-**⚠️ Partial**
-
-- A2: Same-family downgrade (Opus → Sonnet → Haiku) — coarse-grained
-  detection only; hardened in Phase 2.
-
-**❌ Explicitly out of scope in Phase 1**
-
-- A3: Quantization substitution (bf16 → int4) — academic result shows
-  black-box detection ≈ random.
-- A4: Minor-version substitution (same model, different date)
-- A6: Output post-processing (watermark stripping, rewriting)
-- A8: Adaptive routing (real model on probes, cheap model on real traffic)
-
----
-
-## Privacy model
-
-- **Your API key**: read locally from `os.environ[var_name]`. Never
-  logged, never sent anywhere except the target gateway you specify.
-- **Gateway responses**: analyzed in-process on your machine. Never
-  uploaded.
-- **What leaves your machine**: outbound HTTPS only to (1) the target
-  gateway you named, (2) GitHub Releases (for probe sets and
-  fingerprints), and (3) HuggingFace (optional mirror).
-- **No backend, by design.** There is nowhere for us to log your traffic
-  even if we wanted to.
-
-The `OpenAICompatClient` also scrubs raw API-key substrings from any
-response body or error it surfaces as `ProbeResponse.error` — so a
-misbehaving backend that echoes the `Authorization` header cannot leak
-your key via the verdict JSON.
-
----
-
-## Development
-
-```bash
-uv sync --all-extras
-uv run pytest                           # 88 tests
-uv run ruff check src tests scripts
-uv run api-key-scanner-mcp              # run the MCP server over stdio
+```
+verdict:       ok | suspicious | likely_substituted | inconclusive
+trust_score:   0.0 – 1.0
+confidence:    low | medium | high
+detectors:
+  d1_llmmap:     score, top_guess
+  d2_met:        score, p_value
+  d4_metadata:   score, notes
+cost_usd:      $0.03 (cheap) / $0.30 (standard) / $1.50 (deep)
 ```
 
-### Running the batch collection pipeline
+Three budget levels available: `cheap` (~8 probes), `standard`
+(~30 probes, default), `deep` (~100 probes). Higher budget = higher
+confidence, more calls on your gateway.
+
+**Trust score cutoffs:**
+
+- `>= 0.90` → `ok`: responses match the vendor's real fingerprint
+- `0.70 – 0.90` → `suspicious`: some drift, worth a deeper probe
+- `< 0.70` → `likely_substituted`: the model behind the endpoint
+  doesn't match what's claimed
+- `inconclusive` → probes failed (network / bad key / rate limit);
+  verdict explains which
+
+## What it catches (and what it doesn't)
+
+**Catches reliably:**
+
+- **Cross-family substitution**: endpoint claims `gpt-4o` but is
+  actually serving Llama / Qwen / Claude / Gemini.
+- **Cached replay**: endpoint returns canned "vendor-style" answers
+  instead of a real model call.
+- **System-prompt tampering**: endpoint injects a hidden system
+  prompt that changes behavior.
+
+**Does NOT reliably catch:**
+
+- **Same-family downgrade**: Opus → Sonnet → Haiku, GPT-4o → GPT-4o-mini.
+  We surface `suspicious` sometimes but don't commit to a verdict.
+- **Quantization**: bf16 → int4 of the same model. Academic result
+  shows black-box detection is ≈ random.
+- **Adaptive routing**: a gateway that returns real-model answers to
+  "identify yourself" probes but cheap-model answers to everything
+  else. Fundamentally unsolved without an out-of-band trust anchor.
+
+Treat any `likely_substituted` verdict as a signal to investigate —
+not as proof of fraud. Trust scores are statistical inferences.
+
+## Updates
+
+| Something updates | What you need to do |
+|---|---|
+| New weekly fingerprint snapshot | Nothing. Server checks GitHub on each startup and auto-upgrades to the newest signed tag. |
+| New MCP server version (bug fix / feature) | Restart Claude Code. `uvx` auto-refreshes to `@latest`. |
+| Plugin manifest changes (`.mcp.json` / skill wording) | Run `/plugin marketplace update zhonghp-api-key-scanner` in Claude Code, then restart. (Rare.) |
+| Cache problems — old version won't let go | `uv cache clean api-key-scanner-mcp`, then restart Claude Code. |
+
+## Privacy
+
+- **Your API key**: read locally from your `.env` or environment.
+  Never logged, never sent anywhere except the target gateway you
+  specified. Key substrings are scrubbed from any error messages
+  that surface in verdicts.
+- **Gateway responses**: analyzed entirely in-process. Never uploaded.
+- **Outbound network from this tool**: only (1) to the gateway URL
+  you provided, and (2) to `github.com/zhonghp/api-key-scanner`
+  releases, for the signed reference data.
+- **No backend, by design.** There is nowhere for us to log your
+  traffic even if we wanted to.
+
+## Reference data integrity
+
+The fingerprint snapshots we publish are signed with
+[Sigstore](https://www.sigstore.dev/) keyless OIDC, with cert identity
+bound to our weekly GitHub Actions workflow. The server refuses to
+load a release whose signature doesn't match our workflow identity —
+the tool degrades to `inconclusive` rather than return a verdict based
+on unverified reference data.
+
+## Air-gapped / offline use
+
+If your machine cannot reach `github.com`, download a fingerprint
+release manually on another machine, copy it over, and point the
+server at the local directory:
 
 ```bash
-# 1. Edit models.yaml (list of models to collect fingerprints for)
-# 2. Collect — keys come from .env or shell exports
-uv run python scripts/collect_all.py --out ./fingerprints --fail-on-empty
-# 3. Build the MANIFEST.json
-uv run python scripts/generate_manifest.py ./fingerprints
-# 4. Validate schema + alignment + manifest integrity
-uv run python scripts/validate_fingerprints.py ./fingerprints
+export APIGUARD_FINGERPRINT_DIR=/path/to/fingerprint-YYYY-MM-DD
 ```
 
-In CI this is automated weekly via
-`.github/workflows/weekly-fingerprint-collect.yml`, with Sigstore keyless
-signing of the `MANIFEST.json` before publishing to a GitHub Release.
-
----
-
-## Status and roadmap
-
-🚧 **Alpha (v0.1.x).** The MCP tool interface and Verdict schema are
-stable; fingerprint data pipeline and CI landed; PyPI / plugin
-marketplace publish pending the first tagged release.
-
-- **Phase 1** (this release): local verification against signed
-  fingerprints, OpenAI-compat gateways, 12 models cataloged.
-- **Phase 2**: same-family downgrade detection, secret/dynamic canary
-  probes, Anthropic/Google native protocol support.
-- **Phase 3**: TEE-attested gateway option for "zero-trust"
-  per-request verification.
+(Set this in `~/.api-key-scanner/.env` so Claude Code's MCP subprocess
+picks it up too.) The Sigstore check is still enforced; you'll need
+the `MANIFEST.json.sigstore.json` in the directory.
 
 ---
 
@@ -304,10 +154,11 @@ marketplace publish pending the first tagged release.
 - **Code**: [Apache-2.0](LICENSE)
 - **Fingerprint data** (published as GitHub Release assets): CC-BY-4.0
 
-## Disclaimer
+## Roadmap
 
-Verdicts are statistical inferences, not legal determinations. A low
-trust score means *"the gateway's responses are inconsistent with the
-reference distribution we collected from the vendor directly"* — not
-definitive proof of fraud. Treat any `likely_substituted` verdict as a
-signal to investigate further, not a final judgment.
+- **Phase 1** (current, alpha v0.1.x): cross-family substitution,
+  cached-replay, system-prompt tampering; OpenAI-compat gateways.
+- **Phase 2**: same-family downgrade detection, secret/dynamic
+  canary probes, Anthropic and Google native protocol support.
+- **Phase 3**: TEE-attested gateway option for per-request
+  "zero-trust" verification.
