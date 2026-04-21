@@ -4,7 +4,7 @@ Verify whether an LLM API gateway (or 中转站 / third-party proxy) is
 actually serving the model it claims — without ever handing your API
 key to anyone else.
 
-**[简体中文](./README.zh-CN.md)** · Contributing? See **[CONTRIBUTING.md](./CONTRIBUTING.md)**.
+**[简体中文](./README.zh-CN.md)**
 
 ## How it works
 
@@ -25,6 +25,26 @@ The tool ships two pieces: an MCP server (on PyPI) and a skill that
 teaches the agent when and how to call the server's `verify_gateway`
 tool. Both pieces are platform-neutral; installation just differs per
 host.
+
+## Prerequisites
+
+The MCP server runs through [`uvx`](https://docs.astral.sh/uv/), which
+fetches and isolates the Python package on every launch. If you don't
+already have `uv`, install it once:
+
+```bash
+# macOS
+brew install uv
+
+# macOS / Linux (no Homebrew)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell)
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+After install, `uvx --version` should print a version. Restart your
+terminal (or your MCP client) if it doesn't show up yet.
 
 ## Installation
 
@@ -102,8 +122,11 @@ but only if you set it *before* launching the MCP client — most clients
 
 Ask in natural language:
 
-> 帮我验证下 `https://api.example.com/v1` 是不是真的 gpt-4o。我的 key
-> 放在 `MY_GATEWAY_KEY` 环境变量里。
+> 帮我验证下 `https://api.example.com/v1` 提供的 gpt-4o 模型是不是
+> 真的。我的 key 放在 `MY_GATEWAY_KEY` 环境变量里。
+
+(Phrase the question as "is the model at this URL genuine?", not "is
+this URL gpt-4o?" — the former makes the authenticity question clear.)
 
 You get a verdict with:
 
@@ -121,6 +144,23 @@ Cutoffs:
 
 Budget: `cheap` (13 probes), `standard` (58, default), `deep` (92).
 Higher = higher confidence, more calls on your gateway.
+
+## Which models can it verify?
+
+Only models for which we've published a signed reference fingerprint.
+The current coverage — with canonical IDs, vendor model names, and the
+source endpoint each fingerprint was collected from — is tracked in
+**[SUPPORTED_MODELS.md](./SUPPORTED_MODELS.md)**. If the model you care about isn't
+listed there, `verify_gateway` will return `inconclusive` — the tool
+doesn't guess.
+
+For the live list at runtime, just ask in chat:
+
+> What models does api-key-scanner currently support?
+
+The agent calls `list_supported_models`, which reads the latest
+release's `MANIFEST.json` directly — this will always be accurate even
+if `SUPPORTED_MODELS.md` hasn't been updated yet.
 
 ## What it catches
 

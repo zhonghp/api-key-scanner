@@ -140,7 +140,16 @@ def load_fingerprints(
         )
 
     if canonical_model_id not in result:
-        raise FingerprintDataMissingError()
+        available = sorted(result.keys())
+        if available:
+            detail = (
+                f"no fingerprint for '{canonical_model_id}' in the current "
+                f"release. Models covered: {', '.join(available)}. "
+                f"Call list_supported_models for the live list."
+            )
+        else:
+            detail = f"fingerprint directory {resolved_dir} exists but is empty"
+        raise FingerprintDataMissingError(detail=detail)
 
     return result
 

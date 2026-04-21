@@ -173,3 +173,92 @@ def test_dotenv_loader_skips_default_when_missing(
     monkeypatch.delenv("APIGUARD_DOTENV_PATH", raising=False)
     monkeypatch.setattr(server, "_DEFAULT_DOTENV_PATH", tmp_path / "does-not-exist.env")
     server._load_dotenv_if_requested()  # must not raise
+
+
+async def test_list_supported_models_returns_manifest_contents(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """With a manifest present, list_supported_models reports the models."""
+    import json as _json
+
+    from api_key_scanner import server
+    from api_key_scanner.server import list_supported_models
+
+    fp_dir = tmp_path / "fingerprints" / "fingerprint-2026-04-21"
+    fp_dir.mkdir(parents=True)
+    (fp_dir / "MANIFEST.json").write_text(
+        _json.dumps(
+            {
+                "models": {
+                    "openai/gpt-5.4": {"file": "openai/gpt-5.4.jsonl", "sha256": "x"},
+                    "openai/gpt-5.4-mini": {"file": "openai/gpt-5.4-mini.jsonl", "sha256": "y"},
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("APIGUARD_FINGERPRINT_DIR", str(fp_dir))
+    monkeypatch.setattr(server, "_RESOLVED_FINGERPRINT_DIR", None)
+    monkeypatch.setenv("APIGUARD_FINGERPRINT_VERSION", "fingerprint-2026-04-21")
+
+    result = await list_supported_models()
+    assert result["status"] == "ok"
+    assert result["fingerprint_tag"] == "fingerprint-2026-04-21"
+    assert result["models"] == ["openai/gpt-5.4", "openai/gpt-5.4-mini"]
+
+
+async def test_list_supported_models_unavailable_when_no_fingerprints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No fetch possible and no explicit dir -> status=unavailable."""
+    from api_key_scanner import fingerprint_fetch, server
+    from api_key_scanner.server import list_supported_models
+
+    monkeypatch.delenv("APIGUARD_FINGERPRINT_DIR", raising=False)
+    monkeypatch.setattr(server, "_RESOLVED_FINGERPRINT_DIR", None)
+    monkeypatch.setattr(server, "_LAST_FETCH_ERROR", None)
+
+    async def _fail(**_kwargs: object) -> object:
+        raise fingerprint_fetch.FingerprintFetchError("network", "simulated")
+
+    monkeypatch.setattr(fingerprint_fetch, "ensure_fingerprints", _fail)
+
+    result = await list_supported_models()
+    assert result["status"] == "unavailable"
+    assert result["models"] == []
+    assert "network" in result["reason"]
+
+
+def test_fingerprint_missing_error_lists_available_models(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """When claimed_model isn't covered, the error names what IS covered."""
+    import json as _json
+
+    from api_key_scanner import probes as probes_mod
+
+    fp_dir = tmp_path / "fp"
+    (fp_dir / "openai").mkdir(parents=True)
+    # Write a minimal valid FingerprintEntry jsonl
+    (fp_dir / "openai" / "gpt-5.4.jsonl").write_text(
+        _json.dumps(
+            {
+                "probe_id": "llmmap-001",
+                "sample_index": 0,
+                "output": "hi",
+                "output_tokens": 1,
+                "response_ms": 100,
+                "system_fingerprint": None,
+                "finish_reason": "stop",
+                "collected_at": "2026-04-21T00:00:00Z",
+            }
+        )
+        + "\n"
+    )
+
+    with pytest.raises(probes_mod.FingerprintDataMissingError) as exc_info:
+        probes_mod.load_fingerprints("openai/gpt-4o", fingerprint_dir=fp_dir)
+
+    msg = str(exc_info.value)
+    assert "openai/gpt-4o" in msg
+    assert "openai/gpt-5.4" in msg
+    assert "list_supported_models" in msg

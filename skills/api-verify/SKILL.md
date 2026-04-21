@@ -35,6 +35,13 @@ variable name, never the value). Optionally set `budget`: `cheap` (13
 probes, spot-check), `standard` (58, default), or `deep` (92, high
 confidence).
 
+If you're not sure whether `claimed_model` is one the tool has
+fingerprint data for (vendors ship new models faster than the
+fingerprint release), call `list_supported_models` first and check.
+When the model isn't covered, tell the user which ones are — the
+verdict would otherwise come back `inconclusive` without a usable
+signal.
+
 Call `verify_gateway`. Then interpret the returned Verdict:
 
 - `trust_score >= 0.90` → consistent with the claimed model
@@ -43,7 +50,9 @@ Call `verify_gateway`. Then interpret the returned Verdict:
   D1 produced a `top_guess`, mention what model the responses actually
   look like
 - `verdict == "inconclusive"` → the `disclaimer` field names the step
-  that failed (network / signature / missing key / rate limit)
+  that failed (network / signature / model-not-covered / missing key /
+  rate limit); if it's "model-not-covered", tell the user what is
+  covered
 
 Always surface the `disclaimer` and `num_probes_failed` so the user can
 judge how reliable the verdict is.
@@ -64,10 +73,12 @@ Nothing to bootstrap manually. Air-gapped machines: set
 
 # Example
 
-User: "帮我验证下 https://foo.com/v1 是不是真的 claude-opus-4"
+User: "帮我验证下 https://foo.com/v1 提供的 claude-opus-4 模型是不是真的"
 
-You: "好。需要你告诉我 key 放在哪个环境变量里（变量名就行，**不要**贴 key）。
-     比如 `FOO_KEY`。"
+You: [optionally call list_supported_models to confirm claude-opus-4 is
+      in the current release]
+     "好。还需要你告诉我 key 放在哪个环境变量里（变量名就行，**不要**贴
+     key 本身）。比如 `FOO_KEY`。"
 
 User: "FOO_KEY"
 
