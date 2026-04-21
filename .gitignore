@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# uv — lock file IS committed for reproducible CI and collections.
+# pyproject.toml remains the source of truth for library consumers.
+.python-version
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Cache (runtime probe/fingerprint cache)
+.cache/
+~/.cache/apiguard/
+
+# Local fingerprint collections (user's real data). The "official" fingerprints
+# ship via GitHub Releases from the weekly workflow, not via git.
+/fingerprints/
+/out/
+
+# Local Claude Code plugin install state (symlinks + per-user settings)
+/.claude/
+
+# Internal design docs — kept local, not published
+/docs/
+
+# Secrets (just in case)
+.env
+.env.local
+*.pem
+*.key

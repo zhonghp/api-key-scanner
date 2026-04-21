@@ -1,0 +1,11 @@
+{
+  "name": "api-key-scanner",
+  "description": "LLM API authenticity verification tools",
+  "plugins": [
+    {
+      "name": "api-key-scanner",
+      "source": ".",
+      "description": "Verify whether an LLM API gateway is actually serving the claimed model. Runs locally as an MCP server; your API key stays in your local env."
+    }
+  ]
+}

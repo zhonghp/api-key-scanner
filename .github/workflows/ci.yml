@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test & lint (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: install python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: sync deps
+        run: uv sync --all-extras --python ${{ matrix.python-version }}
+
+      - name: ruff lint
+        run: uv run ruff check src tests scripts
+
+      - name: ruff format check
+        run: uv run ruff format --check src tests scripts
+
+      - name: pytest
+        # The aliases-consistency test is the single source of truth for
+        # aliases.json internal health. If the local file breaks it, CI fails
+        # — this is intentional. No --deselect here.
+        run: uv run pytest -q
+
+      - name: mcp protocol smoke test
+        # Send an initialize + tools/list and verify the server responds
+        run: |
+          cat <<'EOF' | uv run api-key-scanner-mcp > /tmp/mcp-out.txt 2>&1 || true
+          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}
+          {"jsonrpc":"2.0","method":"notifications/initialized"}
+          {"jsonrpc":"2.0","id":2,"method":"tools/list"}
+          EOF
+          grep -q '"name":"verify_gateway"' /tmp/mcp-out.txt || { cat /tmp/mcp-out.txt; exit 1; }
+
+  validate-fingerprints:
+    # Only runs when the user actually commits a fingerprints dir (rare — data
+    # usually lives in Releases). Skips silently if no directory exists.
+    name: validate fingerprints dir
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install uv
+        uses: astral-sh/setup-uv@v4
+      - name: sync deps
+        run: uv sync --all-extras
+      - name: validate
+        run: |
+          if [ -d fingerprints ] && [ "$(ls -A fingerprints 2>/dev/null)" ]; then
+            uv run python scripts/validate_fingerprints.py fingerprints
+          else
+            echo "no committed fingerprints/ dir — skipping"
+          fi

@@ -1,0 +1,100 @@
+name: weekly-fingerprint-collect
+
+# Runs every Monday 02:00 UTC. Can also be dispatched manually from
+# the Actions tab; pass --only <canonical_id> through workflow_inputs
+# to collect a single model without burning budget on the full set.
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: Canonical id to collect (blank = all enabled)
+        required: false
+        default: ""
+      release_tag:
+        description: Override release tag (default fingerprint-YYYY-MM-DD)
+        required: false
+        default: ""
+
+permissions:
+  contents: write   # create GitHub Release
+  id-token: write   # for Sigstore keyless signing (future step)
+
+jobs:
+  collect:
+    name: collect + sign + release
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: sync deps
+        run: uv sync --all-extras
+
+      - name: run collection
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+          APIGUARD_ACCOUNT_TIER: ${{ vars.APIGUARD_ACCOUNT_TIER || 'unspecified' }}
+          APIGUARD_REGION: ${{ vars.APIGUARD_REGION || 'unspecified' }}
+        run: |
+          only_flag=""
+          if [ -n "${{ inputs.only }}" ]; then
+            only_flag="--only ${{ inputs.only }}"
+          fi
+          uv run python scripts/collect_all.py \
+            --config models.yaml \
+            --out ./out/fingerprints \
+            --env-file /dev/null \
+            --fail-on-empty \
+            $only_flag
+
+      - name: generate manifest
+        run: |
+          uv run python scripts/generate_manifest.py ./out/fingerprints \
+            --require-models 1
+
+      - name: validate
+        run: uv run python scripts/validate_fingerprints.py ./out/fingerprints
+
+      - name: compute release tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=fingerprint-$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: sigstore sign manifest
+        # Keyless signing — no secrets to manage. Produces MANIFEST.json.sigstore.
+        # Downstream verify_gateway clients will check this against our OIDC
+        # issuer + repo identity before trusting the data.
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: ./out/fingerprints/MANIFEST.json
+          upload-signing-artifacts: false
+
+      - name: create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Fingerprint snapshot ${{ steps.tag.outputs.tag }}
+          generate_release_notes: false
+          body: |
+            Weekly fingerprint snapshot produced by the automated collection
+            workflow. Use this as a reference dataset with verify_gateway.
+            Verify with: `sigstore verify identity --cert-oidc-issuer ... MANIFEST.json`
+          files: |
+            ./out/fingerprints/**/*.jsonl
+            ./out/fingerprints/MANIFEST.json
+            ./out/fingerprints/MANIFEST.json.sigstore

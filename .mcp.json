@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "api-key-scanner": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--project",
+        "/Users/zhonghuaping/SenseCodes/api-key-scanner",
+        "api-key-scanner-mcp"
+      ],
+      "env": {
+        "APIGUARD_FINGERPRINT_DIR": "/Users/zhonghuaping/SenseCodes/api-key-scanner/fingerprints",
+        "APIGUARD_DOTENV_PATH": "/Users/zhonghuaping/SenseCodes/api-key-scanner/.env",
+        "APIGUARD_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "api-key-scanner-mcp"
+version = "0.1.0"
+description = "Verify LLM API gateway authenticity. Local MCP server, your API key stays on your machine."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "api-key-scanner contributors" },
+]
+keywords = ["llm", "mcp", "api-verification", "claude-code", "openai", "anthropic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
+
+dependencies = [
+    "mcp>=1.2.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.6.0",
+    "tiktoken>=0.7.0",
+    "sigstore>=3.0.0",
+    "platformdirs>=4.0.0",
+    # Used by scripts/bootstrap_fingerprints.py and by server.py's opt-in
+    # APIGUARD_DOTENV_PATH loader. Tiny package, no harm shipping by default.
+    "python-dotenv>=1.0.0",
+    # scripts/collect_all.py reads models.yaml (M3 weekly collection driver).
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "vcrpy>=6.0.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "respx>=0.21.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/zhonghp/api-key-scanner"
+Documentation = "https://github.com/zhonghp/api-key-scanner/tree/main/docs"
+Issues = "https://github.com/zhonghp/api-key-scanner/issues"
+
+[project.scripts]
+api-key-scanner-mcp = "api_key_scanner.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/api_key_scanner"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "B", "UP", "SIM", "RUF"]
+ignore = [
+    "E501",   # line too long: covered by formatter
+    "RUF001", # ambiguous unicode in strings (we use emoji deliberately in reports)
+    "RUF002", # ambiguous unicode in docstrings (we use math symbols like ∪ in notation)
+    "RUF003", # ambiguous unicode in comments (× for multiplication is clearer than x)
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "integration: tests that hit mocked gateways (slow)",
+    "e2e: tests that hit real APIs (cost money, gated)",
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true

@@ -1,0 +1,77 @@
+name: release
+
+# Publishes api-key-scanner-mcp to PyPI on tag push. Uses PyPI Trusted
+# Publishers (no API token in repo secrets) — the first release of a new
+# PyPI project needs to be pre-registered at
+# https://pypi.org/manage/account/publishing/ before this job can succeed.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write   # create GitHub Release
+  id-token: write   # PyPI Trusted Publishers + Sigstore
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install uv
+        uses: astral-sh/setup-uv@v4
+      - name: build wheel & sdist
+        run: uv build
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-pypi:
+    name: publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/api-key-scanner-mcp
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Trusted Publishers mode — no token; GitHub OIDC is the auth
+          print-hash: true
+
+  publish-github:
+    name: github release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: sigstore sign release artifacts
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: ./dist/*
+          upload-signing-artifacts: false
+      - name: create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/*
+            dist/*.sigstore
