@@ -14,6 +14,7 @@ Exposes `verify_gateway` which orchestrates:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -103,6 +104,53 @@ async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
     _RESOLVED_FINGERPRINT_DIR = result.path
     _LAST_FETCH_ERROR = None
     return result.path
+
+
+@mcp.tool()
+async def list_supported_models() -> dict[str, Any]:
+    """List models covered by the current signed fingerprint release.
+
+    Call this before verify_gateway when you are uncertain whether a given
+    claimed_model is one the tool can actually check against. Returns the
+    canonical IDs (like 'openai/gpt-4o' or 'anthropic/claude-opus-4') for
+    which reference fingerprints are loaded on this machine right now,
+    plus the release tag they came from.
+
+    If the auto-fetch hasn't happened or failed, the list comes back
+    empty and the `status` field explains why — so the caller can tell
+    the user "the tool can't reach GitHub Releases" versus "your
+    requested model isn't in our catalog".
+    """
+    fp_dir = await _resolve_fingerprint_dir(offline=False)
+    tag = os.environ.get(probes_mod.FINGERPRINT_VERSION_ENV, "unset")
+
+    if fp_dir is None:
+        return {
+            "status": "unavailable",
+            "fingerprint_tag": tag,
+            "models": [],
+            "reason": _LAST_FETCH_ERROR or "no fingerprint data and no APIGUARD_FINGERPRINT_DIR",
+        }
+
+    manifest_path = fp_dir / "MANIFEST.json"
+    if manifest_path.is_file():
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            models = sorted(manifest.get("models", {}).keys())
+            return {"status": "ok", "fingerprint_tag": tag, "models": models}
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("could not parse %s: %s", manifest_path, exc)
+
+    # Fallback: enumerate <vendor>/<model>.jsonl directly.
+    models: list[str] = []
+    for vendor_dir in sorted(p for p in fp_dir.iterdir() if p.is_dir()):
+        for jsonl in sorted(vendor_dir.glob("*.jsonl")):
+            models.append(f"{vendor_dir.name}/{jsonl.stem}")
+    return {
+        "status": "ok" if models else "empty",
+        "fingerprint_tag": tag,
+        "models": models,
+    }
 
 
 @mcp.tool()

@@ -3,7 +3,7 @@
 验证 LLM API gateway（中转站 / 第三方 proxy）是不是真的在跑它宣称的那个
 模型——而且你的 API key 永远不会离开你自己的机器。
 
-**[English](./README.md)** · 参与贡献请看 **[CONTRIBUTING.md](./CONTRIBUTING.md)**。
+**[English](./README.md)**
 
 ## 怎么工作的
 
@@ -19,6 +19,25 @@ Actions workflow 对不上，工具拒绝这份数据，返回 `inconclusive`。
 工具由两部分组成：一个 MCP server（在 PyPI 上）和一个 skill，skill 负责
 教 agent 什么时候、怎么调 `verify_gateway`。两部分都平台中立，只是不同
 客户端的安装方式不同。
+
+## 前置依赖
+
+MCP server 通过 [`uvx`](https://docs.astral.sh/uv/) 启动——它会在每次
+启动时拉取并隔离 Python 包。如果你机器上还没有 `uv`，先装一次：
+
+```bash
+# macOS
+brew install uv
+
+# macOS / Linux（没装 Homebrew）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows（PowerShell）
+irm https://astral.sh/uv/install.ps1 | iex
+```
+
+装完跑一下 `uvx --version` 应该能看到版本号。如果没反应，重启 terminal
+（或重启 MCP 客户端）再试。
 
 ## 安装
 
@@ -93,8 +112,11 @@ Server 启动时自动加载这个文件。shell `export` 也行，但必须在 
 
 直接自然语言：
 
-> 帮我验证下 `https://api.example.com/v1` 是不是真的 gpt-4o。我的 key
-> 放在 `MY_GATEWAY_KEY` 环境变量里。
+> 帮我验证下 `https://api.example.com/v1` 提供的 gpt-4o 模型是不是
+> 真的。我的 key 放在 `MY_GATEWAY_KEY` 环境变量里。
+
+（问法是"这个 URL 提供的 X 模型是不是真的 X"，而不是"这个 URL 是不是
+X"——前者才是在问真实性。）
 
 返回一个 verdict：
 
@@ -112,6 +134,18 @@ Server 启动时自动加载这个文件。shell `export` 也行，但必须在 
 
 Budget：`cheap`（13 个 probe）、`standard`（58 个，默认）、`deep`（92 个）。
 越高置信度越高，对 gateway 的调用量也越大。
+
+## 能验证哪些模型
+
+工具只能验证我们发布了签名指纹的模型。想知道当前覆盖哪些，直接在聊天里问：
+
+> api-key-scanner 现在能验证哪些模型？
+
+agent 会调 `list_supported_models` 告诉你。如果你想验的模型不在列表里，
+verdict 会返回 `inconclusive`——工具不瞎猜。
+
+我们会持续新增模型，最新名单见
+[`fingerprint-*` release](https://github.com/zhonghp/api-key-scanner/releases)。
 
 ## 能抓什么
 
