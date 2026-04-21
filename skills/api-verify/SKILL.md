@@ -1,97 +1,77 @@
 ---
+name: api-verify
 description: |
-  Verify whether an LLM API gateway / middleman endpoint is actually serving
-  the claimed model. Trigger when the user asks to 验证 / 鉴别 / check / verify
-  an API endpoint, 中转站, or gateway; or suspects that an endpoint isn't
-  really serving the claimed model. Uses the api-key-scanner MCP tool
-  `verify_gateway`. The user's API key stays on their machine.
+  Verify whether an LLM API gateway, 中转站, or third-party proxy is actually
+  serving the model it claims, rather than silently routing to a cheaper
+  substitute. Use this skill whenever the user asks to 验证 / 鉴别 / 检查 /
+  审计 an LLM API endpoint, 中转站, gateway, or API reseller; when they
+  suspect a model has been swapped, downgraded, or replaced behind an
+  endpoint; or when they've bought API credits/keys from a middleman and
+  want to confirm what the endpoint is actually running. Calls the
+  `verify_gateway` MCP tool from the api-key-scanner plugin. The user's API
+  key never leaves their machine. Do NOT trigger for generic REST API
+  testing, HTTP health checks, code review, or unit tests — only for
+  claims of LLM model identity.
 ---
 
-# When to trigger
+# Privacy rule — read first
 
-Invoke when the user's request matches any of:
-- "帮我验证 / 鉴别 / 检查 / 看看 这个 API / endpoint / 中转站 / gateway"
-- "这个接口 / 这个地址 是不是真的 Opus / GPT-4o / ..."
-- "verify / check / audit" an LLM API endpoint
-- Questions about whether a gateway has been substituting models
+**Never accept a raw API key in chat.** Ask for the NAME of the env var
+holding the key (e.g. `MY_KEY`), not the value. If the user pastes the
+key, tell them to edit or clear the message and send only the variable
+name. Pass it through as `api_key_env_var=<name>` when calling
+`verify_gateway`; the MCP server reads the key locally and sends it
+only to the target gateway.
 
-# Privacy guardrail — READ FIRST
-
-**NEVER ask the user to paste their API key into chat.** The key must stay
-in their local shell environment (e.g. a `.env` file or `export`).
-
-If the user reports the server can't read their API key after `export`:
-Claude Code snapshotted the env when it spawned the MCP subprocess.
-Tell them to either (a) write the key into `~/.api-key-scanner/.env`
-(a file the server auto-loads at startup) and restart Claude Code, or
-(b) relaunch Claude Code from a shell where the var is already
-exported. Shell exports after Claude Code is running never reach the
-MCP subprocess.
-
-Ask only for the **NAME of the env var** holding the key (e.g. `MY_KEY`,
-not the value). If the user volunteers the key value, tell them to unset
-it from the conversation and provide only the variable name instead.
-
-When calling `verify_gateway`, pass `api_key_env_var=<variable name>`. The
-MCP server reads the key locally and never sends it anywhere except the
-user's target gateway.
+If the server can't find the key after the user `export`ed it in a
+terminal, it's because the MCP client snapshotted env at spawn time.
+Fix: write the key into `~/.api-key-scanner/.env` (auto-loaded at
+startup) and restart the MCP client.
 
 # Workflow
 
-1. Collect three things from the user (ask if not provided):
-   - `endpoint_url`: the gateway endpoint, e.g. `https://some.com/v1`
-   - `claimed_model`: e.g. `claude-opus-4`, `gpt-4o`
-   - `api_key_env_var`: the NAME of the env var, e.g. `MY_KEY`
+Collect `endpoint_url`, `claimed_model`, and `api_key_env_var` (the
+variable name, never the value). Optionally set `budget`: `cheap` (13
+probes, spot-check), `standard` (58, default), or `deep` (92, high
+confidence).
 
-2. (Optional) Ask about budget:
-   - `cheap`: 13 probes, quick spot-check
-   - `standard` (default): 58 probes, reasonable confidence
-   - `deep`: 92 probes, high confidence
+Call `verify_gateway`. Then interpret the returned Verdict:
 
-3. Call MCP tool `verify_gateway` with these parameters.
+- `trust_score >= 0.90` → consistent with the claimed model
+- `0.70 – 0.90` → suspicious; recommend re-running with `deep`
+- `< 0.70` → likely substituted; name which detectors fired, and if
+  D1 produced a `top_guess`, mention what model the responses actually
+  look like
+- `verdict == "inconclusive"` → the `disclaimer` field names the step
+  that failed (network / signature / missing key / rate limit)
 
-4. Interpret the returned Verdict in natural language:
-   - `trust_score >= 0.90`: gateway looks consistent with the claimed model
-   - `0.70 <= trust_score < 0.90`: suspicious, recommend deeper probe
-   - `trust_score < 0.70`: likely substituted — explain which detectors fired
-   - `verdict == "inconclusive"`: something went wrong (network, env var,
-     rate limit); explain and suggest how to retry
+Always surface the `disclaimer` and `num_probes_failed` so the user can
+judge how reliable the verdict is.
 
-5. Always surface:
-   - The `disclaimer` field (Phase 1 limitations)
-   - Which detectors contributed most to the verdict
-   - `num_probes_sent` / `num_probes_failed` so the user can judge
-     how reliable the verdict is
+# Scope — be honest about limits
 
-# Reference data — no pre-setup required
+Phase 1 reliably catches cross-family substitution (Opus → Llama),
+cached replay, and system-prompt tampering. It does NOT reliably catch
+same-family downgrade (Opus → Sonnet → Haiku), quantization, or adaptive
+routing. A high trust score is evidence, not proof — say so.
 
-Users do not need to bootstrap fingerprints manually. On first use, the
-MCP server fetches the latest signed `fingerprint-*` release from
-`https://github.com/zhonghp/api-key-scanner/releases`, verifies its
-Sigstore signature against our weekly workflow's identity, and caches
-the verified data under `~/.cache/api-key-scanner/`. First call takes
-2-5 seconds longer; subsequent calls are cached.
+# Reference data
 
-If a user's machine cannot reach GitHub, point `APIGUARD_FINGERPRINT_DIR`
-at a pre-downloaded release directory.
+On first use, the server downloads and Sigstore-verifies the latest
+`fingerprint-*` GitHub Release, caching under `~/.cache/api-key-scanner/`.
+Nothing to bootstrap manually. Air-gapped machines: set
+`APIGUARD_FINGERPRINT_DIR` to a pre-downloaded release directory.
 
-# Scope disclosure
-
-Before concluding, remind the user that Phase 1 reliably detects
-cross-family substitution (Opus → Llama) but does **NOT** reliably detect
-same-family downgrade (Opus → Sonnet), quantization, or adaptive routing.
-A high trust score does not rule out these harder attacks.
-
-# Example turn
+# Example
 
 User: "帮我验证下 https://foo.com/v1 是不是真的 claude-opus-4"
 
-You: "好，我需要三个信息：(1) 端点 URL ✓ 已给 (2) 宣称的模型 ✓ claude-opus-4
-     (3) 你的 gateway key 放在哪个环境变量里？比如 `MY_KEY`。**不要**把 key
-     本身粘进来——变量名就够了，key 留在你本地。"
+You: "好。需要你告诉我 key 放在哪个环境变量里（变量名就行，**不要**贴 key）。
+     比如 `FOO_KEY`。"
 
-User: "key 在 FOO_KEY"
+User: "FOO_KEY"
 
 You: [call verify_gateway(endpoint_url="https://foo.com/v1",
       claimed_model="claude-opus-4", api_key_env_var="FOO_KEY")]
-     [interpret and present the Verdict]
+     [interpret the Verdict; surface trust_score, top detector finding,
+      disclaimer, scope caveats]
