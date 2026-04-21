@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-04-21
+
+### Added
+- **Auto-fetch signed fingerprints from GitHub Releases.** On first
+  `verify_gateway` call, the MCP server downloads the latest
+  `fingerprint-YYYY-MM-DD` release, verifies its Sigstore bundle
+  against the weekly workflow's OIDC identity, sha256-checks every
+  `.jsonl` against `MANIFEST.json`, and caches the verified data
+  under `~/.cache/api-key-scanner/fingerprints/<tag>/` via
+  `platformdirs`. No more manual bootstrap needed after
+  `/plugin install`.
+- New env knobs: `APIGUARD_FINGERPRINT_RELEASE`,
+  `APIGUARD_FINGERPRINT_REPO`, `APIGUARD_FINGERPRINT_AUTO_UPDATE`,
+  `APIGUARD_OFFLINE`.
+- `fingerprint_fetch.ensure_fingerprints()` with
+  `FingerprintFetchError(kind=...)` discriminants for
+  network/signature/hash/schema failures.
+
+### Fixed
+- Weekly workflow now actually publishes the Sigstore bundle
+  (`MANIFEST.json.sigstore.json`) to the release. Previously
+  `upload-signing-artifacts: false` was suppressing it.
+
 ## [Unreleased] — Phase 1 in progress
 
 ### Added
