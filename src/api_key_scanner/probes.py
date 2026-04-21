@@ -39,13 +39,18 @@ class FingerprintDataMissingError(Exception):
     the recovery instruction in the disclaimer.
     """
 
-    def __init__(self, env_var: str = "APIGUARD_FINGERPRINT_DIR"):
-        self.env_var = env_var
-        super().__init__(
-            f"Fingerprint directory not configured. Set {env_var} to a local "
-            "directory containing <vendor>/<model>.jsonl files (Phase 1) or "
-            "wait for the M3 release-fetching implementation."
+    def __init__(self, detail: str | None = None):
+        self.detail = detail
+        base = (
+            "No fingerprint data available. By default the server auto-fetches "
+            "a signed fingerprint release from GitHub on first use; if that "
+            "failed (network, sigstore verification, or rate limit), set "
+            "APIGUARD_FINGERPRINT_DIR to a locally-downloaded release directory "
+            "to bypass the fetch."
         )
+        if detail:
+            base += f" (fetch attempt failed: {detail})"
+        super().__init__(base)
 
 
 def load_probes(budget: Budget = "standard") -> list[Probe]:

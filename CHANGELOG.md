@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] — 2026-04-21
+
+### Fixed
+- When auto-fetch of fingerprint data fails (network, Sigstore
+  verification, schema mismatch), the resulting `inconclusive`
+  Verdict now includes the specific failure reason instead of a
+  generic "set APIGUARD_FINGERPRINT_DIR" message that implied
+  the user was supposed to configure it manually. Users can now
+  see, e.g., `auto-fetch detail: signature: cert identity
+  mismatch` and know exactly which knob to turn.
+- The `FingerprintDataMissingError` message stopped referring to
+  the long-shipped "M3 release-fetching implementation" as
+  future work.
+
 ## [0.1.3] — 2026-04-21
 
 ### Removed

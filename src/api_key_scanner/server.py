@@ -53,6 +53,11 @@ mcp = FastMCP("api-key-scanner")
 # GitHub or hitting the sigstore verifier again.
 _RESOLVED_FINGERPRINT_DIR: Path | None = None
 
+# Last auto-fetch error, kept so verify_gateway can surface the concrete
+# failure reason in its Verdict when load_fingerprints subsequently fails.
+# Cleared on successful fetch.
+_LAST_FETCH_ERROR: str | None = None
+
 
 async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
     """Return a local fingerprint dir, fetching from GitHub Releases if needed.
@@ -65,7 +70,7 @@ async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
     Returns None on fetch failure; the caller degrades to inconclusive with
     a warning rather than crashing the tool.
     """
-    global _RESOLVED_FINGERPRINT_DIR
+    global _RESOLVED_FINGERPRINT_DIR, _LAST_FETCH_ERROR
 
     explicit = os.environ.get("APIGUARD_FINGERPRINT_DIR")
     if explicit:
@@ -83,6 +88,7 @@ async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
         )
     except FingerprintFetchError as exc:
         logger.warning("auto-fetch failed (%s): %s", exc.kind, exc)
+        _LAST_FETCH_ERROR = f"{exc.kind}: {exc}"
         return None
 
     logger.info(
@@ -95,6 +101,7 @@ async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
     # probes module already reads. One-shot per process; safe.
     os.environ[probes_mod.FINGERPRINT_VERSION_ENV] = result.tag
     _RESOLVED_FINGERPRINT_DIR = result.path
+    _LAST_FETCH_ERROR = None
     return result.path
 
 
@@ -182,11 +189,14 @@ async def verify_gateway(
     try:
         fingerprints = probes_mod.load_fingerprints(canonical_id, fingerprint_dir=fp_dir)
     except FingerprintDataMissingError as exc:
+        reason = str(exc)
+        if _LAST_FETCH_ERROR and "fetch attempt failed" not in reason:
+            reason = f"{reason} (auto-fetch detail: {_LAST_FETCH_ERROR})"
         return _inconclusive(
             endpoint_url=endpoint_url,
             claimed_model=claimed_model,
             resolved_id=canonical_id,
-            reason=str(exc),
+            reason=reason,
             duration_ms=_elapsed_ms(t_start),
         )
 
