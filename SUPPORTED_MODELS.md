@@ -1,51 +1,44 @@
-# Supported models
+# 支持的模型
 
-Models the tool can currently check against signed reference fingerprints.
+工具当前能对照签名参考指纹验证的模型列表。
 
-- **Last updated**: 2026-04-21
-- **Current release**: [`fingerprint-2026-04-21-signed`](https://github.com/zhonghp/api-key-scanner/releases/tag/fingerprint-2026-04-21-signed)
-- **Signature**: Sigstore keyless, bound to the `weekly-fingerprint-collect.yml` workflow of this repo
+- **最近更新**：2026-04-21
+- **当前 release**：[`fingerprint-2026-04-21-signed`](https://github.com/zhonghp/api-key-scanner/releases/tag/fingerprint-2026-04-21-signed)
+- **签名**：Sigstore keyless，绑定到本 repo 的 `weekly-fingerprint-collect.yml` workflow
 
-**[简体中文](./SUPPORTED_MODELS.zh-CN.md)**
+## 覆盖情况
 
-## Coverage
-
-| Canonical ID | Vendor `model` field | Source endpoint (where we collected) | Samples |
+| Canonical ID | 厂商接受的 `model` 字段 | 采集 endpoint（我们从哪里拉的） | 样本数 |
 |---|---|---|---|
 | `openai/gpt-5.4` | `gpt-5.4` | `https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai` | 58 |
 | `openai/gpt-5.4-mini` | `gpt-5.4-mini` | `https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai` | 57 |
 
-"Canonical ID" is what you pass as `claimed_model` when calling
-`verify_gateway`. Aliases like `gpt-5.4`, `gpt5.4`, or full
-`openai/gpt-5.4` all resolve to the same canonical ID via
-`aliases.json`.
+"Canonical ID" 就是你调 `verify_gateway` 时 `claimed_model` 参数要填的
+值。像 `gpt-5.4`、`gpt5.4`、`openai/gpt-5.4` 这些别名通过 `aliases.json`
+都会归一到同一个 canonical ID。
 
-"Source endpoint" is the gateway we ran the collection pipeline against
-to build the reference fingerprint. That fingerprint is what your own
-endpoint's responses get compared to. Ideally this is the vendor's own
-direct API (so the reference is the ground truth); where it isn't,
-we flag it in the "Notes" column when applicable.
+"采集 endpoint" 是我们跑采集流水线时打的 gateway——这里拿到的响应就是
+参考指纹，拿来跟你自己 endpoint 的响应比对。理想情况这里就是厂商直连 API
+（参考数据就是 ground truth）；不是的话 notes 里会标注。
 
-## Why your model might not be here
+## 为什么你的模型不在列表里
 
-`verify_gateway` only returns a meaningful verdict for models in the
-table above. If you call it with a different `claimed_model`, you'll
-get `inconclusive` with a disclaimer explaining what is covered.
+`verify_gateway` 只对表里的模型返回有意义的 verdict。如果你用其它
+`claimed_model` 调它，会得到 `inconclusive` 以及说明"当前覆盖哪些"的
+disclaimer。
 
-- New vendor models — we add them when we have capacity to collect
-  and validate a fingerprint. [File an issue](https://github.com/zhonghp/api-key-scanner/issues/new)
-  naming the model if you need it.
-- Aliases — the canonical ID might exist under a name you didn't
-  expect. Ask in chat: *"Which models does api-key-scanner support?"*
-  The agent calls `list_supported_models` and prints the live list.
+- 厂商出了新模型——我们有能力采集、验证后才会加进去。需要的话
+  [提个 issue](https://github.com/zhonghp/api-key-scanner/issues/new)
+  告诉我们想要哪个
+- 别名问题——你想验的模型可能用了你想不到的 canonical ID。直接在
+  聊天里问：*"api-key-scanner 支持哪些模型？"* agent 会调
+  `list_supported_models` 把实时列表打出来
 
-## How this file is maintained
+## 这份文件怎么维护
 
-For now, manually — whenever the weekly fingerprint release changes
-set of models, we update this file in the same commit. Future: have
-`weekly-fingerprint-collect.yml` regenerate and commit this file
-after each successful collection run.
+目前是手工维护——每次 weekly 指纹 release 里模型集合变了，同一笔提交
+里更新这份文件。未来打算在 `weekly-fingerprint-collect.yml` 里跑完
+采集后自动重新生成并 commit。
 
-The authoritative runtime source is always the `MANIFEST.json` inside
-the latest `fingerprint-*` GitHub Release — `list_supported_models`
-reads that at runtime, so it never goes stale.
+运行时的权威来源始终是最新 `fingerprint-*` GitHub Release 里的
+`MANIFEST.json`——`list_supported_models` 读的就是它，不会过期。

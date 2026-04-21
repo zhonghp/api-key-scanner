@@ -139,9 +139,8 @@ Budget：`cheap`（13 个 probe）、`standard`（58 个，默认）、`deep`（
 
 只能验证我们发布了签名指纹的模型。当前覆盖情况——包括 canonical ID、
 厂商模型名、每份指纹是从哪个 endpoint 采的——记在
-**[SUPPORTED_MODELS.zh-CN.md](./SUPPORTED_MODELS.zh-CN.md)** 里。你想
-验的模型不在列表里时，`verify_gateway` 会返回 `inconclusive`——工具
-不瞎猜。
+**[SUPPORTED_MODELS.md](./SUPPORTED_MODELS.md)** 里。你想验的模型不在
+列表里时，`verify_gateway` 会返回 `inconclusive`——工具不瞎猜。
 
 运行时想看实时列表，直接在聊天里问：
 

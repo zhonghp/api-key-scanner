@@ -150,9 +150,10 @@ Higher = higher confidence, more calls on your gateway.
 Only models for which we've published a signed reference fingerprint.
 The current coverage — with canonical IDs, vendor model names, and the
 source endpoint each fingerprint was collected from — is tracked in
-**[SUPPORTED_MODELS.md](./SUPPORTED_MODELS.md)**. If the model you care
-about isn't listed there, `verify_gateway` will return `inconclusive`
-— the tool doesn't guess.
+**[SUPPORTED_MODELS.md](./SUPPORTED_MODELS.md)** (Chinese-only — the
+table itself is language-neutral). If the model you care about isn't
+listed there, `verify_gateway` will return `inconclusive` — the tool
+doesn't guess.
 
 For the live list at runtime, just ask in chat:
 
