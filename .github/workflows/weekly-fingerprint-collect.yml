@@ -77,11 +77,13 @@ jobs:
       - name: sigstore sign manifest
         # Keyless signing — no secrets to manage. Produces MANIFEST.json.sigstore.
         # Downstream verify_gateway clients will check this against our OIDC
-        # issuer + repo identity before trusting the data.
+        # issuer + repo identity before trusting the data. upload-signing-
+        # artifacts must stay true: without it the sigstore file is written
+        # to a temp area and the later release step's files: glob can't find it.
         uses: sigstore/gh-action-sigstore-python@v3.0.0
         with:
           inputs: ./out/fingerprints/MANIFEST.json
-          upload-signing-artifacts: false
+          upload-signing-artifacts: true
 
       - name: create GitHub release
         uses: softprops/action-gh-release@v2
@@ -95,5 +97,4 @@ jobs:
             Verify with: `sigstore verify identity --cert-oidc-issuer ... MANIFEST.json`
           files: |
             ./out/fingerprints/**/*.jsonl
-            ./out/fingerprints/MANIFEST.json
-            ./out/fingerprints/MANIFEST.json.sigstore
+            ./out/fingerprints/MANIFEST.json*
