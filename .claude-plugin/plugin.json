@@ -2,8 +2,11 @@
   "name": "api-key-scanner",
   "version": "0.1.0",
   "description": "Verify LLM API gateway authenticity. Checks whether an endpoint actually serves the claimed model (Claude/GPT/Gemini) by running signed probes locally. Your API key never leaves your machine.",
-  "author": "api-key-scanner contributors",
+  "author": {
+    "name": "zhonghp"
+  },
   "homepage": "https://github.com/zhonghp/api-key-scanner",
   "keywords": ["llm", "verification", "security", "openai", "anthropic"],
   "license": "Apache-2.0"
 }
+
