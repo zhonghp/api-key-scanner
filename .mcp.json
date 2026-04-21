@@ -2,7 +2,11 @@
   "mcpServers": {
     "api-key-scanner": {
       "command": "uvx",
-      "args": ["api-key-scanner-mcp@latest"]
+      "args": [
+        "--refresh-package",
+        "api-key-scanner-mcp",
+        "api-key-scanner-mcp@latest"
+      ]
     }
   }
 }
