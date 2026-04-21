@@ -1,18 +1,8 @@
 {
   "mcpServers": {
     "api-key-scanner": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "api-key-scanner-mcp"
-      ],
-      "env": {
-        "APIGUARD_FINGERPRINT_DIR": "${CLAUDE_PLUGIN_ROOT}/fingerprints",
-        "APIGUARD_DOTENV_PATH": "${CLAUDE_PLUGIN_ROOT}/.env",
-        "APIGUARD_LOG_LEVEL": "INFO"
-      }
+      "command": "uvx",
+      "args": ["api-key-scanner-mcp@latest"]
     }
   }
 }
