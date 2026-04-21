@@ -252,10 +252,116 @@ def test_models_yaml_is_valid(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "script", ["collect_all.py", "generate_manifest.py", "validate_fingerprints.py"]
+    "script",
+    [
+        "collect_all.py",
+        "generate_manifest.py",
+        "validate_fingerprints.py",
+        "generate_supported_models.py",
+    ],
 )
 def test_scripts_have_help(script: str) -> None:
     """Every script surfaces --help without error."""
     result = _run_script(script, "--help")
     assert result.returncode == 0, result.stderr
     assert "usage" in result.stdout.lower()
+
+
+# ---- generate_supported_models -------------------------------------------
+
+
+def test_generate_supported_models_builds_table(tmp_path: Path) -> None:
+    """Manifest + models.yaml -> markdown with one row per manifest model."""
+    manifest = tmp_path / "MANIFEST.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "collected_at": "2026-04-21T08:56:13.616901+00:00",
+                "models": {
+                    "openai/gpt-5.4": {
+                        "file": "openai/gpt-5.4.jsonl",
+                        "num_samples": 58,
+                        "sha256": "x" * 64,
+                    },
+                    "openai/gpt-5.4-mini": {
+                        "file": "openai/gpt-5.4-mini.jsonl",
+                        "num_samples": 57,
+                        "sha256": "y" * 64,
+                    },
+                },
+            }
+        )
+    )
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text(
+        "models:\n"
+        "  - canonical_id: openai/gpt-5.4\n"
+        "    model_id: gpt-5.4\n"
+        "    endpoint: https://gw.example.com/v1\n"
+        "  - canonical_id: openai/gpt-5.4-mini\n"
+        "    model_id: gpt-5.4-mini\n"
+        "    endpoint: https://gw.example.com/v1\n"
+    )
+    out = tmp_path / "SUPPORTED_MODELS.md"
+    result = _run_script(
+        "generate_supported_models.py",
+        "--manifest",
+        str(manifest),
+        "--models-yaml",
+        str(models_yaml),
+        "--release-tag",
+        "fingerprint-2026-04-21-test",
+        "--out",
+        str(out),
+    )
+    assert result.returncode == 0, result.stderr
+
+    content = out.read_text(encoding="utf-8")
+    assert "fingerprint-2026-04-21-test" in content
+    assert "2026-04-21" in content  # date pulled from collected_at
+    assert "`openai/gpt-5.4`" in content
+    assert "`openai/gpt-5.4-mini`" in content
+    assert "`gpt-5.4`" in content
+    assert "https://gw.example.com/v1" in content
+    assert "| 58 |" in content
+    assert "| 57 |" in content
+
+
+def test_generate_supported_models_missing_endpoint_uses_question_mark(
+    tmp_path: Path,
+) -> None:
+    """A canonical id in the manifest but not in models.yaml still renders."""
+    manifest = tmp_path / "MANIFEST.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "collected_at": "2026-04-21T00:00:00+00:00",
+                "models": {
+                    "some/orphan": {
+                        "file": "some/orphan.jsonl",
+                        "num_samples": 10,
+                        "sha256": "z" * 64,
+                    }
+                },
+            }
+        )
+    )
+    models_yaml = tmp_path / "models.yaml"
+    models_yaml.write_text("models: []\n")
+    out = tmp_path / "SUPPORTED_MODELS.md"
+
+    result = _run_script(
+        "generate_supported_models.py",
+        "--manifest",
+        str(manifest),
+        "--models-yaml",
+        str(models_yaml),
+        "--release-tag",
+        "fingerprint-2026-04-21-test",
+        "--out",
+        str(out),
+    )
+    assert result.returncode == 0, result.stderr
+    content = out.read_text(encoding="utf-8")
+    assert "`some/orphan`" in content
+    assert "| `?` | `?` |" in content  # missing model_id + endpoint both rendered as ?

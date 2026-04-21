@@ -5,6 +5,7 @@
 - **最近更新**：2026-04-21
 - **当前 release**：[`fingerprint-2026-04-21-signed`](https://github.com/zhonghp/api-key-scanner/releases/tag/fingerprint-2026-04-21-signed)
 - **签名**：Sigstore keyless，绑定到本 repo 的 `weekly-fingerprint-collect.yml` workflow
+- **自动维护**：本文件由 `weekly-fingerprint-collect.yml` 在每次指纹采集完成后自动重新生成并提交，不要手工编辑
 
 ## 覆盖情况
 
@@ -34,11 +35,8 @@ disclaimer。
   聊天里问：*"api-key-scanner 支持哪些模型？"* agent 会调
   `list_supported_models` 把实时列表打出来
 
-## 这份文件怎么维护
-
-目前是手工维护——每次 weekly 指纹 release 里模型集合变了，同一笔提交
-里更新这份文件。未来打算在 `weekly-fingerprint-collect.yml` 里跑完
-采集后自动重新生成并 commit。
+## 运行时权威来源
 
 运行时的权威来源始终是最新 `fingerprint-*` GitHub Release 里的
-`MANIFEST.json`——`list_supported_models` 读的就是它，不会过期。
+`MANIFEST.json`——`list_supported_models` 工具读的就是它。本文件只是一个
+便于浏览的静态镜像，可能会在 release 刚发出来那几秒钟之内略微落后。
