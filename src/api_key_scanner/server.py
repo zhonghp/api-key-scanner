@@ -354,6 +354,8 @@ _ROUGH_RATES_USD_PER_1K: dict[str, tuple[float, float]] = {
     "anthropic/claude-haiku-4.5": (1.0, 5.0),
     "openai/gpt-5": (10.0, 30.0),
     "openai/gpt-5-mini": (0.5, 2.0),
+    "openai/gpt-5.4": (10.0, 30.0),
+    "openai/gpt-5.4-mini": (0.5, 2.0),
     "openai/gpt-4o": (2.5, 10.0),
     "openai/gpt-4o-mini": (0.15, 0.6),
     "google/gemini-2.5-pro": (3.5, 10.5),

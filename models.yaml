@@ -22,24 +22,37 @@ collection:
   default_budget: standard
 
 models:
-  # OpenAI family
+  # OpenAI family — only gpt-5.4 variants are active; everything else is
+  # disabled while we iterate on the internal gateway.
+  - canonical_id: openai/gpt-5.4
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.4
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.4-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.4-mini
+    key_env: OPENAI_API_KEY
+    enabled: true
+
   - canonical_id: openai/gpt-4o
     endpoint: https://api.openai.com/v1
     model_id: gpt-4o
     key_env: OPENAI_API_KEY
-    enabled: true
+    enabled: false
 
   - canonical_id: openai/gpt-4o-mini
     endpoint: https://api.openai.com/v1
     model_id: gpt-4o-mini
     key_env: OPENAI_API_KEY
-    enabled: true
+    enabled: false
 
   - canonical_id: openai/gpt-5
     endpoint: https://api.openai.com/v1
     model_id: gpt-5
     key_env: OPENAI_API_KEY
-    enabled: false  # flip when GA
+    enabled: false
 
   - canonical_id: openai/gpt-5-mini
     endpoint: https://api.openai.com/v1
@@ -52,36 +65,36 @@ models:
     endpoint: https://api.anthropic.com/v1/openai
     model_id: claude-opus-4
     key_env: ANTHROPIC_API_KEY
-    enabled: true
+    enabled: false
 
   - canonical_id: anthropic/claude-sonnet-4
     endpoint: https://api.anthropic.com/v1/openai
     model_id: claude-sonnet-4
     key_env: ANTHROPIC_API_KEY
-    enabled: true
+    enabled: false
 
   - canonical_id: anthropic/claude-haiku-4.5
     endpoint: https://api.anthropic.com/v1/openai
     model_id: claude-haiku-4.5
     key_env: ANTHROPIC_API_KEY
-    enabled: true
+    enabled: false
 
   # Google family
   - canonical_id: google/gemini-2.5-pro
     endpoint: https://generativelanguage.googleapis.com/v1beta/openai
     model_id: gemini-2.5-pro
     key_env: GOOGLE_API_KEY
-    enabled: true
+    enabled: false
 
   - canonical_id: google/gemini-2.5-flash
     endpoint: https://generativelanguage.googleapis.com/v1beta/openai
     model_id: gemini-2.5-flash
     key_env: GOOGLE_API_KEY
-    enabled: true
+    enabled: false
 
   # Open-source reference model (Meta Llama via any OpenAI-compat host)
   - canonical_id: meta/llama-3.3-70b
     endpoint: https://api.together.xyz/v1
     model_id: meta-llama/Meta-Llama-3.3-70B-Instruct
     key_env: TOGETHER_API_KEY
-    enabled: false  # enable when you wire a provider for Llama
+    enabled: false

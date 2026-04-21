@@ -1,12 +1,11 @@
 name: weekly-fingerprint-collect
 
-# Runs every Monday 02:00 UTC. Can also be dispatched manually from
-# the Actions tab; pass --only <canonical_id> through workflow_inputs
+# Manual-dispatch only while we iterate on the internal gateway. When the
+# model set stabilizes, re-enable the `schedule` trigger (cron: "0 2 * * 1")
+# to run every Monday 02:00 UTC. Pass --only <canonical_id> through inputs
 # to collect a single model without burning budget on the full set.
 
 on:
-  schedule:
-    - cron: "0 2 * * 1"
   workflow_dispatch:
     inputs:
       only:
