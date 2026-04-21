@@ -145,6 +145,22 @@ asyncio.run(main())
 
 ---
 
+## 指纹数据
+
+第一次调用 `verify_gateway` 时，MCP server 会从
+`github.com/zhonghp/api-key-scanner` 拉取最新的 `fingerprint-YYYY-MM-DD`
+release，**在本地用 Sigstore 校验签名**（比对我们那个 weekly workflow
+的身份），对每个 `.jsonl` 按 `MANIFEST.json` 做 sha256 校验，然后把
+验证通过的文件缓存到 `~/.cache/api-key-scanner/fingerprints/<tag>/`
+（通过 `platformdirs`）。同一进程内后续调用直接走缓存；新开的 server
+进程会检查是否有更新的 tag，自动升级。
+
+签名校验失败直接放弃本次 fetch——server 降级为 `inconclusive`，
+绝不会用未验证的数据出 verdict。
+
+离线/内网场景：自己下载一个 release 到本地，把 `APIGUARD_FINGERPRINT_DIR`
+指过去，整个网络 fetch 就跳过了。
+
 ## 环境变量速查
 
 | 名称 | 作用 | 默认 | 在哪用 |
@@ -152,7 +168,11 @@ asyncio.run(main())
 | `OPENAI_API_KEY`（或你命名的变量）| 网关 API key 值，通过 `os.environ` 读 | — | bootstrap、MCP |
 | `OPENAI_BASE_URL` | bootstrap 用的 OpenAI-compat endpoint | — | 仅 bootstrap |
 | `MODEL_ID` | 供应商接受的模型名 | — | 仅 bootstrap |
-| `APIGUARD_FINGERPRINT_DIR` | `<vendor>/<model>.jsonl` 所在目录 | — | MCP server |
+| `APIGUARD_FINGERPRINT_DIR` | 显式指定本地指纹目录；跳过 GitHub fetch | — | MCP server |
+| `APIGUARD_FINGERPRINT_RELEASE` | 钉到某个 `fingerprint-*` tag | 最新 | MCP server |
+| `APIGUARD_FINGERPRINT_REPO` | 从哪个 `owner/repo` 拉 release | `zhonghp/api-key-scanner` | MCP server |
+| `APIGUARD_FINGERPRINT_AUTO_UPDATE` | 设 `0` 则始终用本地缓存的 tag | `1` | MCP server |
+| `APIGUARD_OFFLINE` | 设 `1` 完全不走网络；没缓存就失败 | `0` | MCP server |
 | `APIGUARD_INSECURE_SSL` | 设 `1` 跳过 SSL 校验（自签证书内网场景） | 关 | gateway 客户端 |
 | `APIGUARD_DOTENV_PATH` | 绝对路径；MCP 启动时加载该 `.env` | 关 | MCP server |
 | `APIGUARD_LOG_LEVEL` | 设 `DEBUG` 把网络重试/错误打到 stderr | `INFO` | MCP server |

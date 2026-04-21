@@ -23,10 +23,11 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from api_key_scanner import __version__, aliases
+from api_key_scanner import __version__, aliases, fingerprint_fetch
 from api_key_scanner import probes as probes_mod
 from api_key_scanner.aliases import UnknownModelError
 from api_key_scanner.detectors import fusion, llmmap, met, metadata
+from api_key_scanner.fingerprint_fetch import FingerprintFetchError
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
 from api_key_scanner.probes import FingerprintDataMissingError
 from api_key_scanner.schemas import (
@@ -45,6 +46,56 @@ logger.addHandler(_handler)
 logger.setLevel(os.environ.get("APIGUARD_LOG_LEVEL", "INFO"))
 
 mcp = FastMCP("api-key-scanner")
+
+
+# Populated on first successful auto-fetch. Subsequent verify_gateway calls
+# in the same process reuse the resolved directory without re-checking
+# GitHub or hitting the sigstore verifier again.
+_RESOLVED_FINGERPRINT_DIR: Path | None = None
+
+
+async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
+    """Return a local fingerprint dir, fetching from GitHub Releases if needed.
+
+    Resolution order:
+      1. APIGUARD_FINGERPRINT_DIR — explicit override, always wins
+      2. Process-level cache from a prior fetch in this server instance
+      3. fingerprint_fetch.ensure_fingerprints() — downloads + Sigstore-verifies
+
+    Returns None on fetch failure; the caller degrades to inconclusive with
+    a warning rather than crashing the tool.
+    """
+    global _RESOLVED_FINGERPRINT_DIR
+
+    explicit = os.environ.get("APIGUARD_FINGERPRINT_DIR")
+    if explicit:
+        return Path(explicit).expanduser()
+
+    if _RESOLVED_FINGERPRINT_DIR is not None:
+        return _RESOLVED_FINGERPRINT_DIR
+
+    try:
+        result = await fingerprint_fetch.ensure_fingerprints(
+            repo=os.environ.get("APIGUARD_FINGERPRINT_REPO", "zhonghp/api-key-scanner"),
+            pinned_tag=os.environ.get("APIGUARD_FINGERPRINT_RELEASE"),
+            auto_update=os.environ.get("APIGUARD_FINGERPRINT_AUTO_UPDATE", "1") != "0",
+            offline=offline or os.environ.get("APIGUARD_OFFLINE", "0") == "1",
+        )
+    except FingerprintFetchError as exc:
+        logger.warning("auto-fetch failed (%s): %s", exc.kind, exc)
+        return None
+
+    logger.info(
+        "fetched fingerprint tag=%s (from_cache=%s) path=%s",
+        result.tag,
+        result.from_cache,
+        result.path,
+    )
+    # Propagate tag into Verdict.fingerprint_version via the env var the
+    # probes module already reads. One-shot per process; safe.
+    os.environ[probes_mod.FINGERPRINT_VERSION_ENV] = result.tag
+    _RESOLVED_FINGERPRINT_DIR = result.path
+    return result.path
 
 
 @mcp.tool()
@@ -124,9 +175,12 @@ async def verify_gateway(
     # 3. Load probes (bundled JSONL)
     probe_list = probes_mod.load_probes(budget)
 
-    # 4. Load fingerprints (local dir via env var for Phase 1; M3 adds remote fetch)
+    # 4. Load fingerprints. If APIGUARD_FINGERPRINT_DIR isn't set, we fetch
+    #    the latest signed GitHub Release once per process and cache it under
+    #    platformdirs. The sigstore identity check is the trust anchor here.
+    fp_dir = await _resolve_fingerprint_dir(offline=offline)
     try:
-        fingerprints = probes_mod.load_fingerprints(canonical_id)
+        fingerprints = probes_mod.load_fingerprints(canonical_id, fingerprint_dir=fp_dir)
     except FingerprintDataMissingError as exc:
         return _inconclusive(
             endpoint_url=endpoint_url,

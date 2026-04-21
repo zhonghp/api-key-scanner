@@ -54,6 +54,18 @@ user's target gateway.
    - Approximate cost (`cost_usd_estimate`)
    - Which detectors contributed most to the verdict
 
+# Reference data — no pre-setup required
+
+Users do not need to bootstrap fingerprints manually. On first use, the
+MCP server fetches the latest signed `fingerprint-*` release from
+`https://github.com/zhonghp/api-key-scanner/releases`, verifies its
+Sigstore signature against our weekly workflow's identity, and caches
+the verified data under `~/.cache/api-key-scanner/`. First call takes
+2-5 seconds longer; subsequent calls are cached.
+
+If a user's machine cannot reach GitHub, point `APIGUARD_FINGERPRINT_DIR`
+at a pre-downloaded release directory.
+
 # Scope disclosure
 
 Before concluding, remind the user that Phase 1 reliably detects

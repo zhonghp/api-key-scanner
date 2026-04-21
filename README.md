@@ -151,6 +151,22 @@ produces a single `trust_score ∈ [0, 1]` and a verdict label:
 
 ---
 
+## Fingerprint data
+
+On the first `verify_gateway` call, the MCP server downloads the latest
+`fingerprint-YYYY-MM-DD` release from `github.com/zhonghp/api-key-scanner`,
+**verifies its Sigstore signature locally** against our weekly workflow's
+identity, sha256-checks each `.jsonl` against `MANIFEST.json`, and caches
+the verified files under `~/.cache/api-key-scanner/fingerprints/<tag>/`
+(using `platformdirs`). Subsequent calls in the same process reuse the
+cache; new server instances check for a newer tag and auto-upgrade.
+
+A failed signature check aborts the fetch — the server degrades to
+`inconclusive` rather than ship unverified data.
+
+Air-gapped / offline usage: pre-download a release locally and point
+`APIGUARD_FINGERPRINT_DIR` at it to skip the network entirely.
+
 ## Environment variables
 
 | Name | Purpose | Default | Used by |
@@ -158,7 +174,11 @@ produces a single `trust_score ∈ [0, 1]` and a verdict label:
 | `OPENAI_API_KEY` (or your name) | Gateway API key — value read via `os.environ` | — | bootstrap, MCP |
 | `OPENAI_BASE_URL` | OpenAI-compat endpoint for bootstrap | — | bootstrap only |
 | `MODEL_ID` | Model name the vendor accepts | — | bootstrap only |
-| `APIGUARD_FINGERPRINT_DIR` | Directory containing `<vendor>/<model>.jsonl` files | — | MCP server |
+| `APIGUARD_FINGERPRINT_DIR` | Explicit local fingerprint dir; skips the GitHub fetch | — | MCP server |
+| `APIGUARD_FINGERPRINT_RELEASE` | Pin to a specific `fingerprint-*` release tag | latest | MCP server |
+| `APIGUARD_FINGERPRINT_REPO` | `owner/repo` to pull fingerprint releases from | `zhonghp/api-key-scanner` | MCP server |
+| `APIGUARD_FINGERPRINT_AUTO_UPDATE` | `0` to stick with whatever's cached | `1` | MCP server |
+| `APIGUARD_OFFLINE` | `1` to forbid network fetches; use cache or fail | `0` | MCP server |
 | `APIGUARD_INSECURE_SSL` | `1` to skip SSL verification (self-signed internal deploys) | off | gateway client |
 | `APIGUARD_DOTENV_PATH` | Absolute path; MCP loads this `.env` at startup | off | MCP server |
 | `APIGUARD_LOG_LEVEL` | `DEBUG` to log network retries / errors to stderr | `INFO` | MCP server |

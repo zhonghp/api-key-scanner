@@ -19,6 +19,7 @@ import httpx
 import pytest
 import respx
 
+from api_key_scanner import fingerprint_fetch, server
 from api_key_scanner.server import verify_gateway
 
 pytestmark = pytest.mark.integration
@@ -184,3 +185,43 @@ async def test_gateway_network_error_is_inconclusive(
     )
     # All probes fail -> detectors can't score -> inconclusive
     assert result["verdict"] in ("inconclusive", "likely_substituted")
+
+
+@respx.mock
+async def test_autofetch_supplies_fingerprint_dir_when_env_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """verify_gateway without APIGUARD_FINGERPRINT_DIR should auto-fetch."""
+    fp_dir = _make_fingerprint_dir(tmp_path)
+    # Unset explicit override and clear the process-level cache
+    monkeypatch.delenv("APIGUARD_FINGERPRINT_DIR", raising=False)
+    monkeypatch.setattr(server, "_RESOLVED_FINGERPRINT_DIR", None)
+    monkeypatch.setenv("MY_KEY", "sk-test-placeholder")
+
+    fake_tag = "fingerprint-2026-04-21-signed"
+
+    async def fake_ensure(**_kwargs: object) -> fingerprint_fetch.FetchResult:
+        return fingerprint_fetch.FetchResult(path=fp_dir, tag=fake_tag, from_cache=False)
+
+    monkeypatch.setattr(fingerprint_fetch, "ensure_fingerprints", fake_ensure)
+
+    idx = [0]
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        content = _CLAUDE_RESPONSES[idx[0] % len(_CLAUDE_RESPONSES)]
+        idx[0] += 1
+        return httpx.Response(200, json=_mock_gateway_response(content))
+
+    respx.post("https://fake.example.com/v1/chat/completions").mock(side_effect=handler)
+
+    result = await verify_gateway(
+        endpoint_url="https://fake.example.com/v1",
+        claimed_model="claude-opus-4",
+        api_key_env_var="MY_KEY",
+        budget="cheap",
+    )
+
+    assert result["verdict"] in ("ok", "suspicious")
+    assert result["fingerprint_version"] == fake_tag, (
+        f"Expected Verdict to carry the auto-fetched tag, got {result.get('fingerprint_version')!r}"
+    )
