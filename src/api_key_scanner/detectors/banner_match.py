@@ -1,17 +1,23 @@
-"""D1 · LLMmap-style discriminative classification.
+"""D1 · banner-match discriminative classification.
 
-For each gateway sample, find the closest reference sample across all
-known models using character n-gram cosine similarity. Aggregate votes:
+For each gateway sample (typically a short banner / meta / refusal
+response), find the closest reference sample across all known models
+using character n-gram cosine similarity. Aggregate votes:
   - claimed_model wins                       -> 1.0 per sample
   - different model, SAME family             -> 0.5 per sample (A2 signal)
   - different model, CROSS-family            -> 0.0 per sample (A1 signal)
 
-The final D1 score is the mean across all llmmap samples. Small sample
-counts yield degraded confidence; zero samples -> detector reports 'failed'.
+The final D1 score is the mean across all D1-tagged samples. Small
+sample counts yield degraded confidence; zero samples -> detector
+reports 'failed'.
 
-Reference: LLMmap (Pasquini, USENIX Sec'25). We use a lightweight
-unsupervised cosine-NN variant instead of a trained classifier; Phase 1
-focus is A1 (cross-family), where even this simple approach is strong.
+**Honest naming note**: this is NOT LLMmap in the paper sense. LLMmap
+is a trained 3-layer transformer classifier on top of
+multilingual-e5-large-instruct embeddings (see arXiv:2407.15847 and
+pasquini-dario/LLMmap). We reuse LLMmap's 8 default queries as our
+probe set, but our inference is a lightweight unsupervised cosine-NN
+— hence "banner_match". Swapping in the real LLMmap classifier is a
+future upgrade; the probe set is designed to stay compatible.
 """
 
 from __future__ import annotations
@@ -36,49 +42,58 @@ def run(
     gateway_responses: list[ProbeResponse],
     fingerprints: dict[str, list[FingerprintEntry]],
     claimed_model_id: str,
-    probe_category_filter: str | None = "identification",
+    allowed_probe_ids: set[str] | None = None,
 ) -> DetectorResult:
-    """Run D1 LLMmap.
+    """Run D1 banner-match.
 
     Args:
         gateway_responses: all gateway samples collected this run.
         fingerprints: canonical_id -> list of FingerprintEntry (across all probes).
         claimed_model_id: canonical id to compare against.
-        probe_category_filter: if set, restrict to probes in this category
-            (llmmap probes are typically 'identification' or 'refusal').
-            None = use all.
+        allowed_probe_ids: if set, restrict both gateway samples and reference
+            entries to probes whose id is in this set. Callers should pass the
+            ids of probes whose ``expected_detectors`` contains ``"d1"`` so D1
+            only sees its own data — otherwise MET continuation samples leak in
+            and inflate the "num_samples_scored" field misleadingly. ``None``
+            means "use all", preserved for back-compat with direct test calls.
 
     Returns:
-        DetectorResult with name='d1_llmmap', score in [0, 1], weight=0.45.
+        DetectorResult with name='d1_banner_match', score in [0, 1], weight=0.45.
     """
     # Gate: if we have no reference for the claimed model, we can't do D1
     if claimed_model_id not in fingerprints or not fingerprints[claimed_model_id]:
         return DetectorResult(
-            name="d1_llmmap",
+            name="d1_banner_match",
             score=0.0,
             weight=0.45,
             status="failed",
             details={"reason": f"no reference fingerprints for {claimed_model_id}"},
         )
 
-    # Group gateway samples by probe_id, filter to llmmap-relevant probes.
-    # The caller usually pre-filters with Probe.category, but we also allow
-    # the fingerprint entries to carry category info in the future.
-    usable_gateway = [r for r in gateway_responses if r.output and not r.error]
+    usable_gateway = [
+        r
+        for r in gateway_responses
+        if r.output
+        and not r.error
+        and (allowed_probe_ids is None or r.probe_id in allowed_probe_ids)
+    ]
     if not usable_gateway:
         return DetectorResult(
-            name="d1_llmmap",
+            name="d1_banner_match",
             score=0.0,
             weight=0.45,
             status="failed",
             details={"reason": "no usable gateway responses"},
         )
 
-    # Build reference pool, grouped by probe_id then model
+    # Build reference pool, grouped by probe_id then model. Same filter as
+    # gateway side so D1 doesn't cross-compare against ref entries it shouldn't.
     ref_by_probe: dict[str, dict[str, list[str]]] = {}
     for model_id, entries in fingerprints.items():
         for entry in entries:
             if not entry.output:
+                continue
+            if allowed_probe_ids is not None and entry.probe_id not in allowed_probe_ids:
                 continue
             ref_by_probe.setdefault(entry.probe_id, {}).setdefault(model_id, []).append(
                 entry.output
@@ -108,7 +123,7 @@ def run(
 
     if not per_sample_scores:
         return DetectorResult(
-            name="d1_llmmap",
+            name="d1_banner_match",
             score=0.0,
             weight=0.45,
             status="failed",
@@ -121,7 +136,7 @@ def run(
     status = "ok" if len(per_sample_scores) >= 3 else "degraded"
 
     return DetectorResult(
-        name="d1_llmmap",
+        name="d1_banner_match",
         score=score,
         weight=0.45,
         status=status,

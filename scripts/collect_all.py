@@ -53,7 +53,7 @@ def _load_config(path: Path) -> tuple[list[_ModelTarget], Budget]:
         cfg = yaml.safe_load(f)
 
     collection = cfg.get("collection", {})
-    default_budget: Budget = collection.get("default_budget", "standard")
+    default_budget: Budget = collection.get("default_budget", "cheap")
 
     targets: list[_ModelTarget] = []
     for entry in cfg.get("models", []):

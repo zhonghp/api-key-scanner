@@ -26,9 +26,8 @@ from pathlib import Path
 
 from api_key_scanner import __version__ as collector_version
 from api_key_scanner import aliases
+from api_key_scanner import probes as probes_mod
 from api_key_scanner.aliases import UnknownModelError
-
-_PROBE_FILES = ("llmmap_v1.jsonl", "met_v1.jsonl")
 
 
 def _sha256_of_file(path: Path) -> str:
@@ -48,16 +47,23 @@ def _count_jsonl_lines(path: Path) -> int:
     return count
 
 
-def _probes_snapshot() -> dict[str, str]:
-    """Hash the probe JSONL files currently shipped with the installed package.
+def _probes_snapshot(probe_set_version: str) -> dict[str, str]:
+    """Hash the probe JSONL files for the given probe-set version.
 
     Consumers can cross-check that their fingerprint data was collected from
     the same probe set version they're using.
     """
     from importlib import resources
 
+    if probe_set_version not in probes_mod._BUNDLED_FILES:
+        raise ValueError(
+            f"unknown probe-set version {probe_set_version!r}; "
+            f"valid: {sorted(probes_mod._BUNDLED_FILES)}"
+        )
+    files = probes_mod._BUNDLED_FILES[probe_set_version]
+
     snapshot: dict[str, str] = {}
-    for fname in _PROBE_FILES:
+    for fname in files.values():
         # 3.10 compat: joinpath takes one arg on MultiplexedPath; chain it
         traversable = resources.files("api_key_scanner.data").joinpath("probes").joinpath(fname)
         with traversable.open("rb") as f:
@@ -66,7 +72,7 @@ def _probes_snapshot() -> dict[str, str]:
     return snapshot
 
 
-def _build_manifest(fp_dir: Path, version: str) -> dict:
+def _build_manifest(fp_dir: Path, version: str, probe_set_version: str) -> dict:
     """Walk <fp_dir>/<vendor>/<model>.jsonl and build the manifest dict."""
     models: dict[str, dict] = {}
     orphans: list[str] = []
@@ -110,11 +116,11 @@ def _build_manifest(fp_dir: Path, version: str) -> dict:
 
     return {
         "version": version,
-        "probe_set_version": "v1",
+        "probe_set_version": probe_set_version,
         "collected_at": datetime.now(timezone.utc).isoformat(),
         "collector_version": collector_version,
         "models": models,
-        "probes_snapshot": _probes_snapshot(),
+        "probes_snapshot": _probes_snapshot(probe_set_version),
     }
 
 
@@ -139,6 +145,14 @@ def main() -> int:
         default=0,
         help="Exit non-zero if fewer than this many models were found",
     )
+    parser.add_argument(
+        "--probe-set-version",
+        default=None,
+        help=(
+            "Probe-set version to record in the manifest "
+            "(default: api_key_scanner.probes.current_probe_set_version())"
+        ),
+    )
     args = parser.parse_args()
 
     fp_dir = Path(args.fingerprints_dir)
@@ -147,9 +161,10 @@ def main() -> int:
         return 2
 
     version = args.version or f"v{datetime.now(timezone.utc).strftime('%Y.%m.%d')}"
+    probe_set_version = args.probe_set_version or probes_mod.current_probe_set_version()
     out_path = Path(args.out) if args.out else fp_dir / "MANIFEST.json"
 
-    manifest = _build_manifest(fp_dir, version=version)
+    manifest = _build_manifest(fp_dir, version=version, probe_set_version=probe_set_version)
     n_models = len(manifest["models"])
 
     if n_models < args.require_models:
@@ -164,7 +179,7 @@ def main() -> int:
         f.write("\n")
 
     print(
-        f"[manifest] {version}: {n_models} models -> {out_path}",
+        f"[manifest] {version} probe_set={probe_set_version}: {n_models} models -> {out_path}",
         file=sys.stderr,
     )
     return 0

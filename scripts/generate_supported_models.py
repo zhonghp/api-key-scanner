@@ -32,13 +32,14 @@ _HEADER_TEMPLATE = """# 支持的模型
 
 - **最近更新**：{date}
 - **当前 release**：[`{tag}`](https://github.com/zhonghp/api-key-scanner/releases/tag/{tag})
+- **Probe 集版本**：`{probe_set}`（MANIFEST 里 `probe_set_version` 字段；客户端对不上会拒绝加载）
 - **签名**：Sigstore keyless，绑定到本 repo 的 `weekly-fingerprint-collect.yml` workflow
 - **自动维护**：本文件由 `weekly-fingerprint-collect.yml` 在每次指纹采集完成后自动重新生成并提交，不要手工编辑
 
 ## 覆盖情况
 
-| Canonical ID | 厂商接受的 `model` 字段 | 采集 endpoint（我们从哪里拉的） | 样本数 |
-|---|---|---|---|
+| Canonical ID | 厂商接受的 `model` 字段 | 采集 endpoint（我们从哪里拉的） | 样本数 | Probe 集 |
+|---|---|---|---|---|
 {rows}
 
 "Canonical ID" 就是你调 `verify_gateway` 时 `claimed_model` 参数要填的
@@ -48,6 +49,11 @@ _HEADER_TEMPLATE = """# 支持的模型
 "采集 endpoint" 是我们跑采集流水线时打的 gateway——这里拿到的响应就是
 参考指纹，拿来跟你自己 endpoint 的响应比对。理想情况这里就是厂商直连 API
 （参考数据就是 ground truth）；不是的话 notes 里会标注。
+
+"Probe 集" 标识这份指纹是用哪个版本的 probe 集合（`llmmap_vN.jsonl` +
+`met_vN.jsonl`）采的。客户端启动时 `APIGUARD_PROBE_SET_VERSION`（默认
+`v2`）必须和这个字段一致，否则 `verify_gateway` 会 fail fast 返回
+inconclusive——避免把 v1 probe 发出去、拿 v2 指纹对比这种错配。
 
 ## 为什么你的模型不在列表里
 
@@ -96,20 +102,26 @@ def render(
     models = manifest.get("models") or {}
     collected_at = manifest.get("collected_at", "")
     date = collected_at.split("T", 1)[0] if "T" in collected_at else (collected_at or "unknown")
+    # `probe_set_version` landed in the manifest in v0.2.0; older manifests
+    # don't have it. Fall back to ``?`` so this script stays back-compatible.
+    probe_set = manifest.get("probe_set_version", "?")
 
     rows: list[str] = []
     for cid in sorted(models.keys()):
         entry = models[cid] or {}
         model_id, endpoint = endpoints.get(cid, ("?", "?"))
         samples = entry.get("num_samples", 0)
-        rows.append(f"| `{cid}` | `{model_id}` | `{endpoint}` | {samples} |")
+        rows.append(
+            f"| `{cid}` | `{model_id}` | `{endpoint}` | {samples} | `{probe_set}` |"
+        )
 
     if not rows:
-        rows.append("| _no models in current release_ | — | — | 0 |")
+        rows.append(f"| _no models in current release_ | — | — | 0 | `{probe_set}` |")
 
     return _HEADER_TEMPLATE.format(
         date=date,
         tag=release_tag,
+        probe_set=probe_set,
         rows="\n".join(rows),
     )
 

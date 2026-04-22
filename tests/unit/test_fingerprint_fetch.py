@@ -57,11 +57,13 @@ def stub_sigstore(monkeypatch: pytest.MonkeyPatch) -> None:
 # --- helpers ----------------------------------------------------------------
 
 
-def _build_manifest(models: dict[str, bytes]) -> tuple[bytes, dict[str, bytes]]:
+def _build_manifest(
+    models: dict[str, bytes], *, probe_set_version: str = "v1"
+) -> tuple[bytes, dict[str, bytes]]:
     """Return (manifest_bytes, asset_name -> content) for a toy release."""
     manifest: dict[str, object] = {
         "version": "v2026.04.21",
-        "probe_set_version": "v1",
+        "probe_set_version": probe_set_version,
         "collected_at": "2026-04-21T00:00:00+00:00",
         "collector_version": "0.1.0",
         "models": {
@@ -121,7 +123,7 @@ def _mock_release_list(releases: list[str]) -> None:
 async def test_pinned_tag_happy_path(fake_cache: Path, stub_sigstore: None) -> None:
     gpt54 = b'{"probe_id": "llmmap-001", "samples": []}\n'
     mini = b'{"probe_id": "llmmap-002", "samples": []}\n'
-    manifest, jsonl_assets = _build_manifest({"openai/gpt-5.4": gpt54, "openai/gpt-5.4-mini": mini})
+    manifest, jsonl_assets = _build_manifest({"openai/gpt-5.4": gpt54, "openai/gpt-5": mini})
     _mock_release(TAG, manifest, b"fake-sigstore-bundle", jsonl_assets)
 
     result = await ensure_fingerprints(repo=REPO, pinned_tag=TAG, cache_root=fake_cache)
@@ -131,7 +133,7 @@ async def test_pinned_tag_happy_path(fake_cache: Path, stub_sigstore: None) -> N
     assert result.from_cache is False
     assert result.path == fake_cache / "fingerprints" / TAG
     assert (result.path / "openai" / "gpt-5.4.jsonl").read_bytes() == gpt54
-    assert (result.path / "openai" / "gpt-5.4-mini.jsonl").read_bytes() == mini
+    assert (result.path / "openai" / "gpt-5.jsonl").read_bytes() == mini
     assert (result.path / "MANIFEST.json").read_bytes() == manifest
     # state.json written
     state = json.loads((fake_cache / "fingerprints" / ".state.json").read_text())
@@ -321,6 +323,48 @@ async def test_supports_legacy_sigstore_asset_name(fake_cache: Path, stub_sigsto
     result = await ensure_fingerprints(repo=REPO, pinned_tag=TAG, cache_root=fake_cache)
     assert result.tag == TAG
     assert (result.path / "MANIFEST.json.sigstore").exists()
+
+
+@respx.mock
+async def test_probe_set_version_match_passes(fake_cache: Path, stub_sigstore: None) -> None:
+    """Client expecting v2 with v2 manifest -> happy path."""
+    manifest, jsonl = _build_manifest({"openai/gpt-5.4": b"data"}, probe_set_version="v2")
+    _mock_release(TAG, manifest, b"sig", jsonl)
+
+    result = await ensure_fingerprints(
+        repo=REPO,
+        pinned_tag=TAG,
+        cache_root=fake_cache,
+        expected_probe_set_version="v2",
+    )
+    assert result.tag == TAG
+
+
+@respx.mock
+async def test_probe_set_version_mismatch_raises_schema(
+    fake_cache: Path, stub_sigstore: None
+) -> None:
+    """Client expecting v2 but manifest is v1 -> schema FingerprintFetchError.
+
+    This is the guard that keeps a v2 client from silently loading v1
+    fingerprint data (whose probe IDs wouldn't match anything the v2
+    detectors send at verify time).
+    """
+    manifest, jsonl = _build_manifest({"openai/gpt-5.4": b"data"}, probe_set_version="v1")
+    _mock_release(TAG, manifest, b"sig", jsonl)
+
+    with pytest.raises(FingerprintFetchError) as exc_info:
+        await ensure_fingerprints(
+            repo=REPO,
+            pinned_tag=TAG,
+            cache_root=fake_cache,
+            expected_probe_set_version="v2",
+        )
+    assert exc_info.value.kind == "schema"
+    assert "probe_set_version" in str(exc_info.value)
+    assert "v2" in str(exc_info.value) and "v1" in str(exc_info.value)
+    # .partial-* cleanup should have happened
+    assert not list(fake_cache.glob("fingerprints/.partial-*"))
 
 
 @respx.mock

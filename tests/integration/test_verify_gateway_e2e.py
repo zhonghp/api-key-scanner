@@ -69,13 +69,14 @@ def _write_fingerprint_file(path: Path, probe_responses: dict[str, list[str]]) -
 def _make_fingerprint_dir(tmp_path: Path) -> Path:
     """Create a minimal fingerprint directory covering Opus + GPT-4o.
 
-    Each model file has 8 Opus-style or GPT-style samples for each of the
-    ids the `cheap` budget will actually query.
+    Probe ids are derived from the active probe set so this fixture stays
+    in sync with version bumps (v1 → v2 → …) without hardcoding.
     """
+    from api_key_scanner import probes as probes_mod
+
     fp_dir = tmp_path / "fingerprints"
 
-    # cheap budget: 3 llmmap probes + 1 met probe
-    probes_for_cheap = ["llmmap-001", "llmmap-002", "llmmap-003", "met-001"]
+    probes_for_cheap = [p.probe_id for p in probes_mod.load_probes("cheap")]
 
     claude_samples = {pid: list(_CLAUDE_RESPONSES) for pid in probes_for_cheap}
     gpt_samples = {pid: list(_GPT_RESPONSES) for pid in probes_for_cheap}
@@ -158,7 +159,7 @@ async def test_substituted_gateway_scores_low(
     )
     assert result["trust_score"] < 0.75
     # D1 should name the true model
-    d1 = result["detectors"]["d1_llmmap"]
+    d1 = result["detectors"]["d1_banner_match"]
     assert d1["details"].get("top_guess") == "openai/gpt-4o"
     # Evidence should include an alarm item
     alarms = [e for e in result["evidence"] if e["severity"] == "alarm"]

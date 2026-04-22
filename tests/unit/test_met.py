@@ -60,28 +60,46 @@ def test_identical_distributions_score_high() -> None:
 
 
 def test_different_distributions_score_low() -> None:
-    """If gateway outputs are visibly different, score low."""
+    """If gateway outputs come from a clearly different distribution, score low.
+
+    Uses n=10 per side (MET paper's recommended operating point) so the
+    permutation test has enough power. Short strings (<50 chars) share
+    the trailing -1 padding in unicode codepoint space, which makes the
+    Hamming kernel less sensitive for tiny samples; n=10 comfortably
+    exceeds that threshold.
+    """
     fingerprints = {
         "anthropic/claude-opus-4": _fp(
             "anthropic/claude-opus-4",
             "p1",
             [
-                "I am Claude, Anthropic's flagship model.",
-                "Greetings. I am Claude, made by Anthropic.",
-                "Hello. I am Claude from Anthropic.",
-                "Hi there. I'm Claude, built by Anthropic.",
-                "Good day. I'm Claude, crafted by Anthropic.",
+                "The quick brown fox jumps over the lazy dog again and again.",
+                "Programming languages evolve rapidly in response to new needs.",
+                "Machine learning models require careful tuning of hyperparameters.",
+                "Software engineering balances design with practical constraints.",
+                "Data structures fundamentally determine algorithmic efficiency.",
+                "Network protocols encode reliability over unreliable channels.",
+                "Compilers translate high-level intent to machine instructions.",
+                "Distributed systems face inherent tradeoffs in consistency.",
+                "Operating systems orchestrate access to shared resources.",
+                "Cryptographic primitives build foundations of modern security.",
             ],
         ),
     }
+    # A visibly different distribution: numeric / symbolic content
     gateway = _gw(
         "p1",
         [
-            "I am ChatGPT made by OpenAI.",
-            "Hi, I'm ChatGPT from OpenAI.",
-            "Hello! I'm ChatGPT, OpenAI's assistant.",
-            "Greetings, I'm ChatGPT by OpenAI.",
-            "Hey there! I am ChatGPT from OpenAI.",
+            "3141592653589793238462643383279502884197169399375105820974944",
+            "2718281828459045235360287471352662497757247093699959574966967",
+            "1414213562373095048801688724209698078569671875376948073176679",
+            "1732050807568877293527446341505872366942805253810380628055806",
+            "2236067977499789696409173668731276235440618359611525724270897",
+            "1618033988749894848204586834365638117720309179805762862135448",
+            "0577215664901532860606512090082402431042159335939923598805767",
+            "4669201609102990671853203820466201617258185577475768632745651",
+            "1202056903159594285399738161511449990764986292340498881792271",
+            "0915965594177219015054603514932384110774149374281672134266498",
         ],
     )
 

@@ -2,7 +2,7 @@
 
 Exposes `verify_gateway` which orchestrates:
   1. Resolve claimed model alias
-  2. Load bundled probe set (llmmap + met)
+  2. Load bundled probe set (banner + met)
   3. Load reference fingerprints (from APIGUARD_FINGERPRINT_DIR)
   4. Read the user's API key from a named env var (the only place the raw
      key is ever touched; never logged, never returned)
@@ -27,7 +27,7 @@ from mcp.server.fastmcp import FastMCP
 from api_key_scanner import __version__, aliases, fingerprint_fetch
 from api_key_scanner import probes as probes_mod
 from api_key_scanner.aliases import UnknownModelError
-from api_key_scanner.detectors import fusion, llmmap, met, metadata
+from api_key_scanner.detectors import banner_match, fusion, met, metadata
 from api_key_scanner.fingerprint_fetch import FingerprintFetchError
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
 from api_key_scanner.probes import FingerprintDataMissingError
@@ -86,6 +86,7 @@ async def _resolve_fingerprint_dir(*, offline: bool) -> Path | None:
             pinned_tag=os.environ.get("APIGUARD_FINGERPRINT_RELEASE"),
             auto_update=os.environ.get("APIGUARD_FINGERPRINT_AUTO_UPDATE", "1") != "0",
             offline=offline or os.environ.get("APIGUARD_OFFLINE", "0") == "1",
+            expected_probe_set_version=probes_mod.current_probe_set_version(),
         )
     except FingerprintFetchError as exc:
         logger.warning("auto-fetch failed (%s): %s", exc.kind, exc)
@@ -158,7 +159,7 @@ async def verify_gateway(
     endpoint_url: str,
     claimed_model: str,
     api_key_env_var: str,
-    budget: Budget = "standard",
+    budget: Budget = "cheap",
     offline: bool = False,
     include_raw_responses: bool = False,
 ) -> dict[str, Any]:
@@ -173,9 +174,8 @@ async def verify_gateway(
         claimed_model: The model the gateway claims to serve, e.g. "claude-opus-4".
         api_key_env_var: NAME of env var holding the key (NOT the key itself).
         budget: Probe budget.
-            - "cheap": ~13 probes, quick spot-check
-            - "standard": ~58 probes (default), reasonable confidence
-            - "deep": ~92 probes, high confidence
+            - "cheap": ~18 calls (default), quick smoke test
+            - "standard": ~258 calls, full MET paper protocol
         offline: If True, skip any network-dependent fingerprint fetch (M3).
         include_raw_responses: Embed raw gateway outputs in evidence (verbose).
 
@@ -186,7 +186,7 @@ async def verify_gateway(
         - Covers only A1 (cross-family substitution), A5 (system-prompt
           tampering), A7 (cached replay).
         - Does NOT reliably detect same-family downgrade (Opus->Sonnet),
-          quantization, or adaptive routing. See docs/2026-04-20-phase1-*.md.
+          quantization, or adaptive routing.
     """
     t_start = time.perf_counter()
     logger.info(
@@ -269,16 +269,24 @@ async def verify_gateway(
             duration_ms=_elapsed_ms(t_start),
         )
 
-    # 6. Run the three detectors (all local, no network)
-    d1 = llmmap.run(
+    # 6. Run the three detectors (all local, no network).
+    # Per-probe expected_detectors tags isolate each detector to its own
+    # probe set — otherwise D1 cosine-NN cross-compares against MET's T=0.7
+    # continuation samples and reports an inflated num_samples_scored.
+    d1_probe_ids = {p.probe_id for p in probe_list if "d1" in (p.expected_detectors or [])}
+    d2_probe_ids = {p.probe_id for p in probe_list if "d2" in (p.expected_detectors or [])}
+
+    d1 = banner_match.run(
         gateway_responses=responses,
         fingerprints=fingerprints,
         claimed_model_id=canonical_id,
+        allowed_probe_ids=d1_probe_ids,
     )
     d2 = met.run(
         gateway_responses=responses,
         fingerprints=fingerprints,
         claimed_model_id=canonical_id,
+        allowed_probe_ids=d2_probe_ids,
     )
     d4 = metadata.run(
         gateway_responses=responses,
@@ -286,6 +294,18 @@ async def verify_gateway(
         claimed_model_id=canonical_id,
     )
     detectors = [d1, d2, d4]
+
+    # Surface budget / coverage mismatches to the user.
+    # When the reference fingerprint was collected at a smaller budget than the
+    # current verify is using, some sent probe ids won't exist on the ref side.
+    # The detectors silently drop those probes (can't compare what you don't
+    # have); we explicitly report it so the verdict's confidence is readable.
+    _attach_coverage_warning(
+        d1, sent_ids=d1_probe_ids, fingerprints=fingerprints, canonical_id=canonical_id
+    )
+    _attach_coverage_warning(
+        d2, sent_ids=d2_probe_ids, fingerprints=fingerprints, canonical_id=canonical_id
+    )
 
     # 7. Fuse
     trust_score = fusion.combine(detectors)
@@ -306,7 +326,7 @@ async def verify_gateway(
         endpoint_url=endpoint_url,
         detectors={d.name: d for d in detectors},
         evidence=evidence,
-        probe_set_version=probes_mod.PROBE_SET_VERSION,
+        probe_set_version=probes_mod.current_probe_set_version(),
         fingerprint_version=probes_mod.current_fingerprint_version(),
         mcp_version=__version__,
         num_probes_sent=len(responses),
@@ -338,7 +358,7 @@ def _inconclusive(
         claimed_model=claimed_model,
         resolved_model_id=resolved_id,
         endpoint_url=endpoint_url,
-        probe_set_version=probes_mod.PROBE_SET_VERSION,
+        probe_set_version=probes_mod.current_probe_set_version(),
         fingerprint_version=probes_mod.current_fingerprint_version(),
         mcp_version=__version__,
         duration_ms=duration_ms,
@@ -376,7 +396,7 @@ def _build_evidence(
         )
 
     # D1: surface the nearest-neighbor voting disagreement (if any)
-    d1 = _find_detector(detectors, "d1_llmmap")
+    d1 = _find_detector(detectors, "d1_banner_match")
     if d1 and d1.status != "failed":
         top_guess = d1.details.get("top_guess")
         votes = d1.details.get("top_guess_votes", 0)
@@ -384,10 +404,10 @@ def _build_evidence(
         if top_guess and d1.score < 1.0:
             out.append(
                 Evidence(
-                    probe_id="llmmap-aggregate",
+                    probe_id="banner-match-aggregate",
                     category="identification",
                     observation=(
-                        f"D1 LLMmap: top-guess is {top_guess} ({votes}/{total_scored} samples), "
+                        f"D1 banner-match: top-guess is {top_guess} ({votes}/{total_scored} samples), "
                         f"score {d1.score:.2f}"
                     ),
                     severity="alarm" if d1.score == 0.0 else "warn",
@@ -413,6 +433,20 @@ def _build_evidence(
                         severity="alarm" if p_val < 0.02 else "warn",
                     )
                 )
+
+    # Reference-coverage warnings (emitted by _attach_coverage_warning).
+    # These make budget / probe-set mismatches visible in the main output
+    # rather than buried in detectors[*].details.warnings.
+    for det in detectors:
+        for warning in det.details.get("warnings", []):
+            out.append(
+                Evidence(
+                    probe_id=f"{det.name}-coverage",
+                    category="metadata",
+                    observation=f"{det.name}: {warning}",
+                    severity="warn",
+                )
+            )
 
     # D4: surface fired signals
     d4 = _find_detector(detectors, "d4_metadata")
@@ -452,8 +486,41 @@ def _find_detector(detectors: list[DetectorResult], name: str) -> DetectorResult
     return None
 
 
-# Re-export for callers that want to build their own probes from outside
-FingerprintEntry = FingerprintEntry  # re-export for type access
+def _attach_coverage_warning(
+    detector: DetectorResult,
+    *,
+    sent_ids: set[str],
+    fingerprints: dict[str, list[FingerprintEntry]],
+    canonical_id: str,
+) -> None:
+    """Record when the reference didn't cover everything the verify sent.
+
+    This happens most commonly when a fingerprint was collected at budget=cheap
+    but verify is running at budget=standard: the reference has fewer probe ids,
+    so the detector silently scores only the intersection. Without an explicit
+    note on the detector the user sees a confident-looking score without knowing
+    it was computed on a smaller sample than budget=standard implies.
+    """
+    ref_ids = {e.probe_id for e in fingerprints.get(canonical_id, [])}
+    matched = sent_ids & ref_ids
+    missing = sent_ids - ref_ids
+    if not sent_ids or not missing:
+        return
+
+    detector.details["ref_coverage"] = {
+        "sent": len(sent_ids),
+        "matched": len(matched),
+        "missing_probe_ids": sorted(missing),
+    }
+    if detector.status == "ok":
+        detector.status = "degraded"
+    detector.details.setdefault("warnings", []).append(
+        f"reference fingerprint missing {len(missing)}/{len(sent_ids)} probe ids "
+        f"for this detector — probably collected at a smaller budget than the "
+        f"current verify. Re-collect the reference at this budget (or run verify "
+        f"at a smaller budget) to use the full probe set. Missing ids: "
+        f"{sorted(missing)[:5]}{' ...' if len(missing) > 5 else ''}"
+    )
 
 
 _DEFAULT_DOTENV_PATH = Path.home() / ".api-key-scanner" / ".env"

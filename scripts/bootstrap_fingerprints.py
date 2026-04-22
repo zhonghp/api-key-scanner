@@ -17,7 +17,7 @@ without editing the file:
     OPENAI_API_KEY=sk-different uv run python scripts/bootstrap_fingerprints.py
 
 Usage:
-    uv run python scripts/bootstrap_fingerprints.py [--out DIR] [--budget cheap|standard|deep]
+    uv run python scripts/bootstrap_fingerprints.py [--out DIR] [--budget cheap|standard]
 
 Then:
     export APIGUARD_FINGERPRINT_DIR=./fingerprints
@@ -79,8 +79,8 @@ async def main() -> int:
     parser.add_argument(
         "--budget",
         default="cheap",
-        choices=["cheap", "standard", "deep"],
-        help="Probe budget; 'cheap' keeps costs under ~$0.10 (default: cheap)",
+        choices=["cheap", "standard"],
+        help="Probe budget; 'cheap' is a smoke test (~18 calls), 'standard' is the full MET paper protocol (~258 calls)",
     )
     args = parser.parse_args()
 

@@ -24,7 +24,7 @@ from api_key_scanner.schemas import (
 
 # Calibration targets from design doc §5.4 / §9.4
 DEFAULT_WEIGHTS: dict[str, float] = {
-    "d1_llmmap": 0.45,
+    "d1_banner_match": 0.45,
     "d2_met": 0.40,
     "d4_metadata": 0.15,
 }

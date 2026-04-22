@@ -24,11 +24,29 @@ from api_key_scanner.schemas import Budget, FingerprintEntry, Probe
 
 logger = logging.getLogger(__name__)
 
-_BUDGET_PROBE_COUNT: dict[Budget, dict[str, int]] = {
-    # Samples per run = (llmmap_probes × 1) + (met_probes × 10 samples each)
-    "cheap": {"llmmap": 3, "met": 1},  # 13 total calls
-    "standard": {"llmmap": 8, "met": 5},  # 58 total calls
-    "deep": {"llmmap": 12, "met": 8},  # 92 total calls
+# Per-budget probe loading configuration.
+#   probes             — read the first N entries from the file (order matters)
+#   samples_per_probe  — hard cap on num_samples; reduces but never upscales
+# The "deep" tier was removed after the v2 pool saturates at standard (8 llmmap
+# + 25 met = 33 probe types). Future high-confidence tiers should introduce a
+# new name (e.g. "strict") rather than reusing "deep".
+_BUDGET_CONFIG: dict[Budget, dict[str, dict[str, int]]] = {
+    "cheap": {
+        "llmmap": {"probes": 3, "samples_per_probe": 1},
+        "met": {"probes": 5, "samples_per_probe": 3},
+    },  # v2 total: 3 + 15 = 18 calls (smoke test)
+    "standard": {
+        "llmmap": {"probes": 8, "samples_per_probe": 1},
+        "met": {"probes": 25, "samples_per_probe": 10},
+    },  # v2 total: 8 + 250 = 258 calls (full MET paper protocol)
+}
+
+# Bundled probe files. New versions live alongside older ones so they can be
+# selected via APIGUARD_PROBE_SET_VERSION for rollback / A-B testing without
+# redeploying the package.
+_BUNDLED_FILES: dict[str, dict[str, str]] = {
+    "v1": {"llmmap": "llmmap_v1.jsonl", "met": "met_v1.jsonl"},
+    "v2": {"llmmap": "llmmap_v2.jsonl", "met": "met_v2.jsonl"},
 }
 
 
@@ -53,17 +71,26 @@ class FingerprintDataMissingError(Exception):
         super().__init__(base)
 
 
-def load_probes(budget: Budget = "standard") -> list[Probe]:
+def load_probes(budget: Budget = "cheap") -> list[Probe]:
     """Load the bundled probe set for this budget.
 
-    Budget caps the total sample count so users with small quotas don't
-    blow up their bill during verification.
+    Probe-set version is :data:`PROBE_SET_VERSION` by default; override via
+    ``APIGUARD_PROBE_SET_VERSION`` env var for rollback / A-B testing.
+    Budget caps total sample count so users with small quotas don't blow
+    up their bill during verification.
     """
-    caps = _BUDGET_PROBE_COUNT[budget]
+    version = current_probe_set_version()
+    cfg = _BUDGET_CONFIG[budget]
+    files = _BUNDLED_FILES[version]
 
     probes: list[Probe] = []
-    probes.extend(_load_bundled_jsonl("llmmap_v1.jsonl", cap=caps["llmmap"]))
-    probes.extend(_load_bundled_jsonl("met_v1.jsonl", cap=caps["met"]))
+    for probe_type in ("llmmap", "met"):
+        loaded = _load_bundled_jsonl(files[probe_type], cap=cfg[probe_type]["probes"])
+        sample_cap = cfg[probe_type]["samples_per_probe"]
+        for probe in loaded:
+            if probe.num_samples > sample_cap:
+                probe.num_samples = sample_cap
+        probes.extend(loaded)
     return probes
 
 
@@ -90,7 +117,7 @@ def load_fingerprints(
 
     Returns a mapping `canonical_model_id -> list[FingerprintEntry]` covering
     the claimed model AND every other known model we have data for. D1
-    LLMmap needs the cross-family references to do nearest-neighbor voting;
+    banner-match needs the cross-family references to do nearest-neighbor voting;
     D2 MET only compares against the claimed model.
 
     Args:
@@ -179,8 +206,25 @@ def _resolve_fingerprint_dir(explicit: Path | str | None) -> Path | None:
 
 # Versioning constants that make it into the Verdict so users can tell
 # which data set produced a given verdict.
-PROBE_SET_VERSION = "v1"
+PROBE_SET_VERSION = "v2"
+_PROBE_SET_VERSION_ENV = "APIGUARD_PROBE_SET_VERSION"
 FINGERPRINT_VERSION_ENV = "APIGUARD_FINGERPRINT_VERSION"
+
+
+def current_probe_set_version() -> str:
+    """Resolve probe-set version with env-var override.
+
+    Callers should use this (rather than the :data:`PROBE_SET_VERSION`
+    constant directly) when reporting the active version at runtime —
+    e.g. when populating :class:`Verdict.probe_set_version`.
+    """
+    version = os.environ.get(_PROBE_SET_VERSION_ENV, PROBE_SET_VERSION)
+    if version not in _BUNDLED_FILES:
+        raise ValueError(
+            f"unknown probe set version: {version}; "
+            f"valid: {sorted(_BUNDLED_FILES)}"
+        )
+    return version
 
 
 def current_fingerprint_version() -> str:

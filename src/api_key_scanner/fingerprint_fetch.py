@@ -83,6 +83,7 @@ async def ensure_fingerprints(
     auto_update: bool = True,
     offline: bool = False,
     cache_root: Path | None = None,
+    expected_probe_set_version: str | None = None,
 ) -> FetchResult:
     """Resolve a local dir holding a verified fingerprint snapshot.
 
@@ -99,6 +100,12 @@ async def ensure_fingerprints(
             present, else raises ``FingerprintFetchError(kind="offline_no_cache")``.
         cache_root: Override the cache base directory. Defaults to
             :func:`platformdirs.user_cache_dir` / ``api-key-scanner``.
+        expected_probe_set_version: If set, the downloaded manifest's
+            ``probe_set_version`` must match this string exactly. On mismatch
+            we raise ``FingerprintFetchError(kind="schema")`` rather than
+            silently loading data collected under a different probe set (whose
+            probe IDs won't line up with what the detectors send). Callers
+            typically pass ``probes.current_probe_set_version()``.
 
     Returns:
         A :class:`FetchResult` whose ``path`` points at a directory of the
@@ -156,7 +163,12 @@ async def ensure_fingerprints(
         _, assets = await _fetch_release_by_tag(client, repo, chosen_tag)
 
         final_dir = await _download_and_verify(
-            client=client, repo=repo, tag=chosen_tag, assets=assets, fp_root=fp_root
+            client=client,
+            repo=repo,
+            tag=chosen_tag,
+            assets=assets,
+            fp_root=fp_root,
+            expected_probe_set_version=expected_probe_set_version,
         )
 
     _write_state(fp_root, active_tag=chosen_tag)
@@ -307,6 +319,7 @@ async def _download_and_verify(
     tag: str,
     assets: list[dict[str, Any]],
     fp_root: Path,
+    expected_probe_set_version: str | None = None,
 ) -> Path:
     """Download assets into a partial dir, verify, then atomic-rename."""
     asset_urls = {a["name"]: a["browser_download_url"] for a in assets if "name" in a}
@@ -348,6 +361,22 @@ async def _download_and_verify(
         models = manifest.get("models")
         if not isinstance(models, dict):
             raise FingerprintFetchError("schema", "MANIFEST.json missing 'models' object")
+
+        # 2a. probe-set-version alignment: a v2 client cannot use v1 data
+        # (probe IDs won't match what the detectors send at verify time).
+        if expected_probe_set_version is not None:
+            manifest_version = manifest.get("probe_set_version")
+            if manifest_version != expected_probe_set_version:
+                raise FingerprintFetchError(
+                    "schema",
+                    (
+                        f"manifest probe_set_version={manifest_version!r} but "
+                        f"client expects {expected_probe_set_version!r}; "
+                        "either upgrade/downgrade the client (via pip install "
+                        "api-key-scanner-mcp@<matching-version>) or override "
+                        "locally with APIGUARD_PROBE_SET_VERSION"
+                    ),
+                )
 
         # 3. each referenced .jsonl
         for canonical_id, entry in models.items():

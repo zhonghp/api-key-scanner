@@ -37,8 +37,8 @@ def test_report_contains_headline_and_score() -> None:
 def test_report_includes_detectors_when_present() -> None:
     v = _basic_verdict(
         detectors={
-            "d1_llmmap": DetectorResult(
-                name="d1_llmmap",
+            "d1_banner_match": DetectorResult(
+                name="d1_banner_match",
                 score=0.0,
                 weight=0.45,
                 status="ok",
@@ -47,7 +47,7 @@ def test_report_includes_detectors_when_present() -> None:
         }
     )
     md = render_markdown(v)
-    assert "d1_llmmap" in md
+    assert "d1_banner_match" in md
     assert "openai/gpt-4o" in md
 
 

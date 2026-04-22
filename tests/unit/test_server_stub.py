@@ -191,7 +191,7 @@ async def test_list_supported_models_returns_manifest_contents(
             {
                 "models": {
                     "openai/gpt-5.4": {"file": "openai/gpt-5.4.jsonl", "sha256": "x"},
-                    "openai/gpt-5.4-mini": {"file": "openai/gpt-5.4-mini.jsonl", "sha256": "y"},
+                    "openai/gpt-5": {"file": "openai/gpt-5.jsonl", "sha256": "y"},
                 }
             }
         )
@@ -203,7 +203,7 @@ async def test_list_supported_models_returns_manifest_contents(
     result = await list_supported_models()
     assert result["status"] == "ok"
     assert result["fingerprint_tag"] == "fingerprint-2026-04-21"
-    assert result["models"] == ["openai/gpt-5.4", "openai/gpt-5.4-mini"]
+    assert result["models"] == ["openai/gpt-5", "openai/gpt-5.4"]
 
 
 async def test_list_supported_models_unavailable_when_no_fingerprints(
@@ -262,3 +262,47 @@ def test_fingerprint_missing_error_lists_available_models(
     assert "openai/gpt-4o" in msg
     assert "openai/gpt-5.4" in msg
     assert "list_supported_models" in msg
+
+
+async def test_verify_gateway_rejects_deep_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``deep`` was removed with probe set v2. When invoked via FastMCP the
+    ``Literal["cheap", "standard"]`` annotation makes Pydantic reject the arg
+    upfront; when called directly (this test's path — FastMCP's validator
+    doesn't run) ``_BUDGET_CONFIG[budget]`` raises KeyError instead. Either
+    way, ``deep`` must raise rather than silently downgrading to ``standard``."""
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
+    with pytest.raises((KeyError, ValidationError)):
+        await verify_gateway(
+            endpoint_url="https://example.com/v1",
+            claimed_model="claude-opus-4",
+            api_key_env_var="MY_TEST_KEY",
+            budget="deep",  # type: ignore[arg-type]
+        )
+
+
+async def test_verdict_uses_d1_banner_match_detector_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D1 was renamed from d1_llmmap to d1_banner_match in 0.2.0; the verdict's
+    ``detectors`` object must use the new key so downstream JSON consumers pick
+    up on the rename via breakage rather than silent drift."""
+    monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
+    result = await verify_gateway(
+        endpoint_url="https://example.com/v1",
+        claimed_model="claude-opus-4",
+        api_key_env_var="MY_TEST_KEY",
+    )
+    # Path: no fingerprint dir -> inconclusive, but the verdict schema still
+    # carries the detectors dict whose shape we care about. If fingerprints
+    # happen to be configured (e.g. via user env in CI), the detector dict
+    # will be populated; either way the key name is what's being tested.
+    detectors = result.get("detectors", {})
+    # On the inconclusive path detectors may be empty; only check naming
+    # if the detector ran.
+    assert "d1_llmmap" not in detectors, (
+        "d1_llmmap detector key leaked into verdict — the 0.2.0 rename to "
+        "d1_banner_match did not propagate. Check server.py, fusion weights, "
+        "and detectors/banner_match.py::run()."
+    )

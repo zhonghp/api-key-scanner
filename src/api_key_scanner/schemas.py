@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-Budget = Literal["cheap", "standard", "deep"]
+Budget = Literal["cheap", "standard"]
 VerdictLabel = Literal["ok", "suspicious", "likely_substituted", "inconclusive"]
 Confidence = Literal["high", "medium", "low"]
 Severity = Literal["info", "warn", "alarm"]
@@ -78,7 +78,7 @@ class FingerprintEntry(BaseModel):
 class DetectorResult(BaseModel):
     """Output of a single detector."""
 
-    name: str  # "d1_llmmap" | "d2_met" | "d4_metadata"
+    name: str  # "d1_banner_match" | "d2_met" | "d4_metadata"
     score: float  # 0-1, lower = more suspicious
     weight: float  # bayesian fusion weight
     status: Literal["ok", "degraded", "failed"] = "ok"
