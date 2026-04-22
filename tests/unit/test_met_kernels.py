@@ -17,7 +17,6 @@ from api_key_scanner.detectors._met_kernels import (
     two_sample_permutation_pvalue,
 )
 
-
 # -- pad_unicode --------------------------------------------------------------
 
 

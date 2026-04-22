@@ -16,7 +16,6 @@ import pytest
 
 from api_key_scanner import probes as probes_mod
 
-
 # -- Version constants --------------------------------------------------------
 
 
@@ -116,7 +115,7 @@ def test_llmmap_v2_probes_match_upstream_queries_byte_for_byte() -> None:
     assert len(llmmap) == 8, "expected 8 llmmap probes under standard budget"
     # Each probe has exactly one user message; the content must be the
     # upstream query string unchanged.
-    for probe, upstream in zip(llmmap, _LLMMAP_UPSTREAM_QUERIES):
+    for probe, upstream in zip(llmmap, _LLMMAP_UPSTREAM_QUERIES, strict=True):
         assert len(probe.messages) == 1
         assert probe.messages[0].role == "user"
         assert probe.messages[0].content == upstream, (
