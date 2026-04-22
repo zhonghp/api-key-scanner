@@ -4,6 +4,86 @@ All notable changes to this project will be documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased — 0.2.0]
+
+### Breaking
+- **D1 detector renamed**: Verdict JSON key changed from
+  `detectors.d1_llmmap` to `detectors.d1_banner_match`. The current
+  D1 implementation is a lightweight cosine-NN banner matcher, not a
+  LLMmap-style trained classifier — the rename makes that honest.
+  Clients that parse verdict JSON by detector key need to update.
+- **`Budget` Literal narrowed** from `["cheap", "standard", "deep"]`
+  to `["cheap", "standard"]`. `budget="deep"` is rejected by
+  Pydantic. The v2 probe pool (8 LLMmap-style + 25 MET-style) is
+  saturated at `standard`, so `deep` had nothing to add.
+- **v1 and v2 probe sets are incompatible**. v2 sets a new default
+  (`PROBE_SET_VERSION = "v2"`) with new probe IDs; existing v1
+  fingerprint releases will not match v2 probes. Fall back to v1 via
+  `APIGUARD_PROBE_SET_VERSION=v1` if needed; the v2 fingerprint
+  release is produced by the next weekly workflow run.
+
+### Added
+- Probe set **v2**:
+  - `llmmap_v2.jsonl` — LLMmap `confs/queries/default.json` verbatim
+    (8 queries: banner + banner-injection + meta + ethics-T/F + 2
+    refusal variants). Per-probe `max_tokens` calibrated (128–512).
+  - `met_v2.jsonl` — 25 Wikipedia continuation prompts across 5
+    languages (en/de/fr/ru/es), matching Gao et al.'s main MET
+    experiment. `temperature=1.0`, `num_samples=10` (N=250).
+- `APIGUARD_PROBE_SET_VERSION` env var for rollback / A-B testing.
+- `current_probe_set_version()` helper so Verdict reflects the
+  version actually used at runtime (not the compile-time default).
+- **D2 upgrade**: `detectors/_met_kernels.py` vendors the MMD²
+  Hamming kernel + permutation p-value from
+  [`i-gao/model-equality-testing`](https://github.com/i-gao/model-equality-testing)
+  (MIT-licensed, ~135 LOC pure numpy/Python, no torch dependency).
+  `detectors/met.py` rewritten to run MET on padded unicode
+  codepoint sequences with `pad_length=50` (MET paper L).
+- **D1/D2 isolation by `expected_detectors` tag**: detectors now
+  honor an `allowed_probe_ids` filter, and the server builds one per
+  detector from each probe's `expected_detectors` list. Prevents D1
+  from cross-comparing against MET continuation samples when the
+  reference fingerprint happens to include both probe types.
+- **Reference-coverage warnings in Verdict**: when the fingerprint
+  misses probe ids that the current budget expects (most common
+  cause: reference collected at `cheap`, verify running at
+  `standard`), the detector status drops to `degraded` and a warn
+  evidence item surfaces the missing ids + likely budget-mismatch
+  cause. Fixes a silent failure mode where a confident-looking score
+  was computed on a small subset of the intended probes.
+- **MANIFEST `probe_set_version` binding**: `generate_manifest.py`
+  writes the active version; `fingerprint_fetch.ensure_fingerprints`
+  takes an optional `expected_probe_set_version` and raises
+  `FingerprintFetchError(kind="schema")` on mismatch rather than
+  silently loading incompatible data.
+
+### Changed
+- Budget reshaped around MET paper protocol:
+  - `cheap`: 3 banner probes + 5 MET prompts × 3 samples = 18 calls
+    (smoke test).
+  - `standard`: 8 banner probes + 25 MET prompts × 10 samples = 258
+    calls (full paper protocol). This is ~4.5× the old `standard`;
+    verify latency goes from ~30 s to ~3 min.
+- **Default budget flipped from `standard` to `cheap`** across the
+  MCP tool (`verify_gateway(..., budget="cheap")`), the weekly
+  workflow (`models.yaml: default_budget: cheap`), and the loaders
+  (`probes.load_probes()`, `scripts/collect_all.py`). Reasoning:
+  `standard` now costs ~258 gateway calls (~3 min, ~$0.10 per verify
+  on a typical gateway) — enough to surprise users on a first-time
+  probe. `cheap` runs in ~3 seconds and catches gross substitutions;
+  users escalate to `standard` when a result warrants stronger
+  statistical power. Skill copy + README walk the reader through
+  the two-stage workflow.
+
+### Fixed
+- D1 was silently counting MET continuation samples toward
+  `num_samples_scored` whenever the reference fingerprint held both
+  probe types — a cheap-budget reference paired with a standard
+  verify would produce e.g. `num_samples_scored=53, status=ok` where
+  50 of those samples were MET outputs at T=0.7 being nearest-
+  neighbor-voted as if they were banner responses. See the isolation
+  filter under Added above.
+
 ## [0.1.4] — 2026-04-21
 
 ### Fixed
@@ -111,13 +191,6 @@ versions use [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error strings before returning them as `ProbeResponse.error` — covers
   the case where a backend echoes the `Authorization` header in its
   error body
-
-### Documentation
-- `docs/2026-04-20-使用文档.md` — full Chinese usage guide with three
-  invocation modes (Claude Code plugin / raw stdio / inline Python)
-- `docs/2026-04-20-phase1-技术实现方案.md` — the phase 1 plan this
-  changelog tracks against
-- `docs/2026-04-20-LLM-API-中转站真伪鉴别方案.md` — end-to-end design
 
 ## [0.1.0] — not yet released
 First alpha. Target tag once M5 calibration set is in place.

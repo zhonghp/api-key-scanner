@@ -133,7 +133,7 @@ You get a verdict with:
 - `trust_score` — 0.0 to 1.0
 - `verdict` — `ok` / `suspicious` / `likely_substituted` / `inconclusive`
 - `confidence` — `low` / `medium` / `high`
-- Detector breakdown (`d1_llmmap`, `d2_met`, `d4_metadata`)
+- Detector breakdown (`d1_banner_match`, `d2_met`, `d4_metadata`)
 
 Cutoffs:
 
@@ -142,8 +142,11 @@ Cutoffs:
 - `< 0.70` → the model behind the endpoint likely isn't what's claimed
 - `inconclusive` → the verdict explains which step failed
 
-Budget: `cheap` (13 probes), `standard` (58, default), `deep` (92).
-Higher = higher confidence, more calls on your gateway.
+Budget: `cheap` (~18 calls, default — smoke test) or `standard`
+(~258 calls, the full MET paper protocol). Higher = higher confidence,
+more calls on your gateway. Start with `cheap` to sanity-check the
+endpoint; escalate to `standard` when a suspicious result warrants
+the extra statistical power.
 
 ## Which models can it verify?
 
@@ -227,6 +230,29 @@ export APIGUARD_FINGERPRINT_DIR=/path/to/fingerprint-YYYY-MM-DD
 (Set this in `~/.api-key-scanner/.env` so the MCP client's subprocess
 picks it up.) The Sigstore check is still enforced; you'll need the
 `MANIFEST.json.sigstore.json` in the directory.
+
+## Acknowledgments
+
+The detection methodology in this project builds directly on two
+open-source research efforts, both MIT-licensed. Enormous thanks to
+their authors for making everything — code, weights, datasets —
+publicly available.
+
+- **[LLMmap](https://github.com/pasquini-dario/LLMmap)** — Dario
+  Pasquini et al., *"LLMmap: Fingerprinting for Large Language
+  Models"* (USENIX Security 2025, [arXiv:2407.15847](https://arxiv.org/abs/2407.15847)).
+  Our D1 detector uses LLMmap's default 8-query strategy (from
+  `confs/queries/default.json`). The current D1 implementation is a
+  lightweight banner-match approximation — the full trained-classifier
+  version is planned as a future upgrade.
+
+- **[Model Equality Testing](https://github.com/i-gao/model-equality-testing)**
+  — Irena Gao et al., *"Model Equality Testing: Which Model Is This
+  API Serving?"* ([arXiv:2410.20247](https://arxiv.org/abs/2410.20247)).
+  Our D2 detector vendors this project's MMD² Hamming kernel and
+  permutation p-value procedure. The prompt style (Wikipedia
+  continuation tasks) and the N=250 sample protocol both come from
+  the paper's main experimental configuration.
 
 ## License
 

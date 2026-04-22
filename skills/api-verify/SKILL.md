@@ -31,21 +31,37 @@ startup) and restart the MCP client.
 # Workflow
 
 Collect `endpoint_url`, `claimed_model`, and `api_key_env_var` (the
-variable name, never the value). Optionally set `budget`: `cheap` (13
-probes, spot-check), `standard` (58, default), or `deep` (92, high
-confidence).
+variable name, never the value). Optionally set `budget`: `cheap`
+(~18 calls, default — smoke test) or `standard` (~258 calls, the
+full MET paper protocol). Prefer `cheap` for the first run to avoid
+burning ~258 gateway calls on a simple sanity check; escalate to
+`standard` when the verdict comes back suspicious or the user
+explicitly asks for stronger confidence.
+
+**Pass `claimed_model` verbatim — do NOT normalize.** Use the user's
+exact string (including casing, punctuation, absence of a `vendor/`
+prefix). The MCP server sends this string straight into the
+gateway's `/v1/chat/completions` request body as the `model` field,
+and most gateways are case-sensitive about it. Canonical ids from
+`list_supported_models` are for coverage checking only — they are
+NOT necessarily what the gateway accepts on the wire. For example,
+if the user writes `Qwen3.5-122B-A10B`, pass that literal string,
+not `qwen/qwen3.5-122b-a10b`.
 
 If you're not sure whether `claimed_model` is one the tool has
 fingerprint data for (vendors ship new models faster than the
 fingerprint release), call `list_supported_models` first and check.
-When the model isn't covered, tell the user which ones are — the
-verdict would otherwise come back `inconclusive` without a usable
-signal.
+The returned canonical ids are the lookup keys for fingerprint data;
+the tool internally normalizes the user's string via
+`aliases.to_canonical()` to match. You do NOT need to canonicalize
+on your side. When the model isn't covered, tell the user which ones
+are — the verdict would otherwise come back `inconclusive` without a
+usable signal.
 
 Call `verify_gateway`. Then interpret the returned Verdict:
 
 - `trust_score >= 0.90` → consistent with the claimed model
-- `0.70 – 0.90` → suspicious; recommend re-running with `deep`
+- `0.70 – 0.90` → suspicious; recommend re-running `standard` to confirm whether the drift is persistent
 - `< 0.70` → likely substituted; name which detectors fired, and if
   D1 produced a `top_guess`, mention what model the responses actually
   look like
@@ -70,19 +86,3 @@ On first use, the server downloads and Sigstore-verifies the latest
 `fingerprint-*` GitHub Release, caching under `~/.cache/api-key-scanner/`.
 Nothing to bootstrap manually. Air-gapped machines: set
 `APIGUARD_FINGERPRINT_DIR` to a pre-downloaded release directory.
-
-# Example
-
-User: "帮我验证下 https://foo.com/v1 提供的 claude-opus-4 模型是不是真的"
-
-You: [optionally call list_supported_models to confirm claude-opus-4 is
-      in the current release]
-     "好。还需要你告诉我 key 放在哪个环境变量里（变量名就行，**不要**贴
-     key 本身）。比如 `FOO_KEY`。"
-
-User: "FOO_KEY"
-
-You: [call verify_gateway(endpoint_url="https://foo.com/v1",
-      claimed_model="claude-opus-4", api_key_env_var="FOO_KEY")]
-     [interpret the Verdict; surface trust_score, top detector finding,
-      disclaimer, scope caveats]

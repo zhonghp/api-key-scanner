@@ -123,17 +123,18 @@ X"——前者才是在问真实性。）
 - `trust_score`——0.0 到 1.0
 - `verdict`——`ok` / `suspicious` / `likely_substituted` / `inconclusive`
 - `confidence`——`low` / `medium` / `high`
-- Detector 详情（`d1_llmmap` / `d2_met` / `d4_metadata`）
+- Detector 详情（`d1_banner_match` / `d2_met` / `d4_metadata`）
 
 分界：
 
 - `>= 0.90` → 响应跟厂商真实指纹吻合
-- `0.70 – 0.90` → 有漂移，建议跑 `deep`
+- `0.70 – 0.90` → 有漂移，可用同一 endpoint 复跑 `standard` 确认是否抖动
 - `< 0.70` → endpoint 背后的模型大概率不是宣称的那个
 - `inconclusive` → verdict 里会说明哪一步挂了
 
-Budget：`cheap`（13 个 probe）、`standard`（58 个，默认）、`deep`（92 个）。
-越高置信度越高，对 gateway 的调用量也越大。
+Budget：`cheap`（~18 次调用，默认——冒烟测试）或 `standard`（~258 次调用，对齐 MET 论文主实验配置）。
+越高置信度越高，对 gateway 的调用量也越大。建议先跑 `cheap` 做初步
+探查，结果可疑时再用 `standard` 拉满统计功效。
 
 ## 能验证哪些模型
 
@@ -205,6 +206,25 @@ export APIGUARD_FINGERPRINT_DIR=/path/to/fingerprint-YYYY-MM-DD
 
 （写进 `~/.api-key-scanner/.env`，MCP 客户端的子进程才读得到。）Sigstore
 校验仍然强制执行；目录里得有 `MANIFEST.json.sigstore.json`。
+
+## 致谢
+
+本项目的检测方法论建立在两个开源研究成果之上，两者都是 MIT 许可。
+感谢原作者开放代码、权重和数据集。
+
+- **[LLMmap](https://github.com/pasquini-dario/LLMmap)** — Dario
+  Pasquini 等，*"LLMmap: Fingerprinting for Large Language
+  Models"*（USENIX Security 2025，[arXiv:2407.15847](https://arxiv.org/abs/2407.15847)）。
+  我们 D1 探测器用的是 LLMmap 仓库 `confs/queries/default.json`
+  里那 8 条默认 query 策略。当前 D1 实现是轻量的 banner 匹配近似，
+  真正加载论文训练好的分类器放在后续升级。
+
+- **[Model Equality Testing](https://github.com/i-gao/model-equality-testing)**
+  — Irena Gao 等，*"Model Equality Testing: Which Model Is This API
+  Serving?"*（[arXiv:2410.20247](https://arxiv.org/abs/2410.20247)）。
+  我们 D2 探测器把该项目的 MMD² Hamming 核和 permutation p-value
+  过程 vendor 了过来。prompt 形式（Wikipedia 续写任务）和 N=250
+  样本协议也都照搬论文主实验配置。
 
 ## 许可证
 

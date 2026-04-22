@@ -140,5 +140,8 @@ any time you change this data.
 
 ## Architecture decision records
 
-See `docs/` (not in the public repo; maintainer-only) for the original
-Phase 1 design doc, attack taxonomy, and threat-model rationale.
+Long-form design rationale (threat model, detector selection, probe
+set evolution) is kept in the maintainer's local notes rather than
+shipped with the repo. Open an issue if you need historical context
+for a specific design choice — we're happy to surface the relevant
+bits.
