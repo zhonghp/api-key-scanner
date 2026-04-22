@@ -133,3 +133,30 @@ def test_multiple_probes_average() -> None:
         num_permutations=200,
     )
     assert result.details["num_probes_tested"] == 2
+
+
+def test_allowed_probe_ids_keep_d2_on_its_own_probe_set() -> None:
+    fingerprints = {
+        "anthropic/claude-opus-4": [
+            *_fp("anthropic/claude-opus-4", "met-001", [f"alpha {i}" for i in range(5)]),
+            *_fp(
+                "anthropic/claude-opus-4",
+                "llmmap-001",
+                [f"beta {i}" for i in range(5)],
+                start_idx=5,
+            ),
+        ],
+    }
+    gateway = _gw("met-001", [f"alpha {i}" for i in range(5, 10)])
+    gateway += _gw("llmmap-001", [f"totally different {i}" for i in range(5)])
+
+    result = run(
+        gateway_responses=gateway,
+        fingerprints=fingerprints,
+        claimed_model_id="anthropic/claude-opus-4",
+        num_permutations=200,
+        allowed_probe_ids={"met-001"},
+    )
+
+    assert result.status != "failed"
+    assert result.details["num_probes_tested"] == 1

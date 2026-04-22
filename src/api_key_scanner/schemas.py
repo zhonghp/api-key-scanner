@@ -53,7 +53,9 @@ class ProbeResponse(BaseModel):
     probe_id: str
     sample_index: int
     output: str
+    prompt_tokens: int | None = None
     output_tokens: int | None = None
+    total_tokens: int | None = None
     response_ms: int | None = None
     ttft_ms: int | None = None
     system_fingerprint: str | None = None
@@ -67,7 +69,9 @@ class FingerprintEntry(BaseModel):
     probe_id: str
     sample_index: int
     output: str
+    prompt_tokens: int | None = None
     output_tokens: int | None = None
+    total_tokens: int | None = None
     response_ms: int | None = None
     ttft_ms: int | None = None
     system_fingerprint: str | None = None

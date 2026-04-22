@@ -264,7 +264,9 @@ class OpenAICompatClient:
             probe_id=probe.probe_id,
             sample_index=sample_index,
             output=content,
+            prompt_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
+            total_tokens=usage.get("total_tokens"),
             response_ms=elapsed_ms,
             ttft_ms=None,  # Phase 1: no streaming
             system_fingerprint=body.get("system_fingerprint"),

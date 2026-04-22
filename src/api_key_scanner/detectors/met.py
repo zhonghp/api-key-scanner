@@ -49,6 +49,7 @@ def run(
     claimed_model_id: str,
     num_permutations: int = _DEFAULT_PERMUTATIONS,
     min_samples_per_side: int = 3,
+    allowed_probe_ids: set[str] | None = None,
 ) -> DetectorResult:
     """Run D2 MET.
 
@@ -58,6 +59,7 @@ def run(
         claimed_model_id: canonical id; we test gateway vs THIS model's refs.
         num_permutations: permutation test count (default 500).
         min_samples_per_side: skip probes with fewer samples on either side.
+        allowed_probe_ids: explicit allow-list of probe ids assigned to D2.
 
     Returns:
         DetectorResult with name='d2_met', score in [0, 1], weight=0.40.
@@ -74,13 +76,17 @@ def run(
     # Group gateway outputs by probe_id
     gw_by_probe: dict[str, list[str]] = {}
     for r in gateway_responses:
-        if r.output and not r.error:
+        if (
+            r.output
+            and not r.error
+            and (allowed_probe_ids is None or r.probe_id in allowed_probe_ids)
+        ):
             gw_by_probe.setdefault(r.probe_id, []).append(r.output)
 
     # Group reference outputs by probe_id
     ref_by_probe: dict[str, list[str]] = {}
     for entry in fingerprints[claimed_model_id]:
-        if entry.output:
+        if entry.output and (allowed_probe_ids is None or entry.probe_id in allowed_probe_ids):
             ref_by_probe.setdefault(entry.probe_id, []).append(entry.output)
 
     per_probe: list[_ProbePValue] = []

@@ -28,12 +28,16 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.4
     key_env: OPENAI_API_KEY
+    reference_mode: internal_gateway
+    release_allowed: false
     enabled: true
 
   - canonical_id: openai/gpt-5.4-mini
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.4-mini
     key_env: OPENAI_API_KEY
+    reference_mode: internal_gateway
+    release_allowed: false
     enabled: true
 
   - canonical_id: openai/gpt-4o
@@ -97,4 +101,6 @@ models:
     endpoint: https://api.together.xyz/v1
     model_id: meta-llama/Meta-Llama-3.3-70B-Instruct
     key_env: TOGETHER_API_KEY
+    reference_mode: third_party_host
+    release_allowed: false
     enabled: false

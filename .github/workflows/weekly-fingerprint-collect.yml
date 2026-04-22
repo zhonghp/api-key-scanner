@@ -37,6 +37,9 @@ jobs:
       - name: sync deps
         run: uv sync --all-extras
 
+      - name: audit reference targets
+        run: uv run python scripts/audit_reference_targets.py --config models.yaml --only-enabled
+
       - name: run collection
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

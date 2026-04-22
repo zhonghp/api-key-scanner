@@ -107,6 +107,10 @@
     ],
     "meta/llama": [
       "meta/llama-3.3-70b"
+    ],
+    "qwen/qwen": [
+      "qwen/qwen3.5-4b",
+      "qwen/qwen3.5-122b-a10b"
     ]
   }
 }

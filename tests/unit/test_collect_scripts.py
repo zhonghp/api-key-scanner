@@ -227,6 +227,54 @@ def test_collect_all_missing_config_file(tmp_path: Path) -> None:
     assert "not found" in result.stderr
 
 
+def test_audit_reference_targets_flags_non_release_safe_enabled_target(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://gw.example.com/v1
+    model_id: gpt-4o
+    key_env: OPENAI_API_KEY
+    enabled: true
+    reference_mode: proxy
+    release_allowed: false
+"""
+    )
+    result = _run_script(
+        "audit_reference_targets.py",
+        "--config",
+        str(cfg),
+        "--only-enabled",
+        "--require-release-safe",
+    )
+    assert result.returncode == 1
+    assert "not release-safe" in result.stderr
+
+
+def test_audit_reference_targets_accepts_vendor_direct_target(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://api.openai.com/v1
+    model_id: gpt-4o
+    key_env: OPENAI_API_KEY
+    enabled: true
+"""
+    )
+    result = _run_script(
+        "audit_reference_targets.py",
+        "--config",
+        str(cfg),
+        "--only-enabled",
+        "--require-release-safe",
+    )
+    assert result.returncode == 0, result.stderr
+    assert "vendor_direct" in result.stderr
+
+
 def test_models_yaml_is_valid(tmp_path: Path) -> None:
     """The shipped models.yaml must parse and reference only known canonical ids."""
     import yaml
@@ -257,6 +305,7 @@ def test_models_yaml_is_valid(tmp_path: Path) -> None:
         "collect_all.py",
         "generate_manifest.py",
         "validate_fingerprints.py",
+        "audit_reference_targets.py",
         "generate_supported_models.py",
     ],
 )

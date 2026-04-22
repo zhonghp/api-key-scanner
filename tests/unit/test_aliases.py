@@ -54,6 +54,7 @@ def test_family_of_resolved_model() -> None:
     assert resolve("gpt-4o").family == "openai/gpt"
     assert resolve("gemini-2.5-pro").family == "google/gemini"
     assert resolve("llama-3.3-70b").family == "meta/llama"
+    assert resolve("qwen3.5-4b").family == "qwen/qwen"
 
 
 @pytest.mark.parametrize(
@@ -62,6 +63,7 @@ def test_family_of_resolved_model() -> None:
         ("anthropic/claude-opus-4", "anthropic/claude-sonnet-4", True),
         ("anthropic/claude-opus-4", "openai/gpt-4o", False),
         ("openai/gpt-4o", "openai/gpt-4o-mini", True),
+        ("qwen/qwen3.5-4b", "qwen/qwen3.5-122b-a10b", True),
         ("google/gemini-2.5-pro", "meta/llama-3.3-70b", False),
         # Unknown canonical -> not same family
         ("unknown/model", "anthropic/claude-opus-4", False),

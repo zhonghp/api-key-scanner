@@ -53,7 +53,9 @@ async def test_happy_path_returns_parsed_response() -> None:
     assert len(results) == 1
     r = results[0]
     assert r.output == "Hi!"
+    assert r.prompt_tokens == 5
     assert r.output_tokens == 2
+    assert r.total_tokens == 7
     assert r.finish_reason == "stop"
     assert r.system_fingerprint == "fp_abc123"
     assert r.error is None

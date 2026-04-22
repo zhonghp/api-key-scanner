@@ -9,6 +9,7 @@ dist/
 *.egg-info/
 *.egg
 .pytest_cache/
+pytest-cache-files-*/
 .ruff_cache/
 .mypy_cache/
 .coverage
@@ -40,6 +41,9 @@ env/
 # ship via GitHub Releases from the weekly workflow, not via git.
 /fingerprints/
 /out/
+/eval-artifacts/
+/eval-results/
+/scripts/local_eval/
 
 # Local Claude Code plugin install state (symlinks + per-user settings)
 /.claude/

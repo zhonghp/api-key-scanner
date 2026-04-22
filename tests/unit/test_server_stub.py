@@ -11,8 +11,9 @@ import os
 import pytest
 
 from api_key_scanner import __version__
+from api_key_scanner.probes import load_probes
 from api_key_scanner.schemas import Verdict
-from api_key_scanner.server import verify_gateway
+from api_key_scanner.server import _build_detector_probe_ids, verify_gateway
 
 
 @pytest.fixture(autouse=True)
@@ -173,6 +174,15 @@ def test_dotenv_loader_skips_default_when_missing(
     monkeypatch.delenv("APIGUARD_DOTENV_PATH", raising=False)
     monkeypatch.setattr(server, "_DEFAULT_DOTENV_PATH", tmp_path / "does-not-exist.env")
     server._load_dotenv_if_requested()  # must not raise
+
+
+def test_detector_probe_ids_are_split_by_expected_detector() -> None:
+    probes = load_probes("cheap")
+    detector_probe_ids = _build_detector_probe_ids(probes)
+
+    assert detector_probe_ids["d1_llmmap"]
+    assert detector_probe_ids["d2_met"]
+    assert detector_probe_ids["d1_llmmap"].isdisjoint(detector_probe_ids["d2_met"])
 
 
 async def test_list_supported_models_returns_manifest_contents(

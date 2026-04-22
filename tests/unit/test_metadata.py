@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from api_key_scanner.detectors.metadata import run
 from api_key_scanner.schemas import FingerprintEntry, ProbeResponse
 
@@ -13,14 +15,20 @@ def _gw(
     response_ms: int | None = None,
     system_fingerprint: str | None = None,
     error: str | None = None,
+    output_tokens: int | None = None,
+    prompt_tokens: int | None = None,
+    total_tokens: int | None = None,
 ) -> ProbeResponse:
     return ProbeResponse(
         probe_id=probe_id,
         sample_index=0,
         output=output if not error else "",
+        prompt_tokens=prompt_tokens,
         response_ms=response_ms,
         system_fingerprint=system_fingerprint,
         error=error,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
     )
 
 
@@ -30,13 +38,19 @@ def _ref(
     *,
     response_ms: int | None = None,
     system_fingerprint: str | None = None,
+    output_tokens: int | None = None,
+    prompt_tokens: int | None = None,
+    total_tokens: int | None = None,
 ) -> FingerprintEntry:
     return FingerprintEntry(
         probe_id=probe_id,
         sample_index=0,
         output=output,
+        prompt_tokens=prompt_tokens,
         response_ms=response_ms,
         system_fingerprint=system_fingerprint,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
         collected_at="2026-04-20T00:00:00Z",
     )
 
@@ -123,3 +137,83 @@ def test_empty_inputs_return_neutral() -> None:
     # All signals skip -> falls back to neutral 0.7
     assert result.status == "degraded"
     assert result.score == 0.7
+
+
+def test_replay_diversity_signal_flags_identical_high_temperature_outputs() -> None:
+    gateway = [
+        ProbeResponse(probe_id="met-001", sample_index=i, output="same replayed output")
+        for i in range(5)
+    ]
+    fingerprints = {
+        "x": [
+            FingerprintEntry(
+                probe_id="met-001",
+                sample_index=i,
+                output=f"reference variant {i}",
+                collected_at="2026-04-20T00:00:00Z",
+            )
+            for i in range(5)
+        ]
+    }
+
+    result = run(gateway_responses=gateway, fingerprints=fingerprints, claimed_model_id="x")
+    signal_map = {s["name"]: s["score"] for s in result.details["signals"]}
+    assert signal_map.get("replay_diversity", 1.0) <= 0.4
+
+
+def test_token_count_consistency_flags_mismatched_gateway_counts() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    try:
+        enc = tiktoken.encoding_for_model("gpt-4o")
+    except Exception:
+        enc = tiktoken.get_encoding("o200k_base")
+
+    texts = [f"hello world {i}" for i in range(3)]
+    fingerprints = {
+        "openai/gpt-4o": [_ref("p1", text, output_tokens=len(enc.encode(text))) for text in texts]
+    }
+    gateway = [_gw("p1", text, output_tokens=len(enc.encode(text)) + 10) for text in texts]
+
+    result = run(
+        gateway_responses=gateway,
+        fingerprints=fingerprints,
+        claimed_model_id="openai/gpt-4o",
+    )
+    signal_map = {s["name"]: s["score"] for s in result.details["signals"]}
+    assert signal_map.get("token_count_consistency", 1.0) <= 0.3
+
+
+def test_token_count_consistency_is_neutral_when_gateway_matches_reference_mismatch_rate() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    try:
+        enc = tiktoken.encoding_for_model("gpt-4o")
+    except Exception:
+        enc = tiktoken.get_encoding("o200k_base")
+
+    texts = [f"cached output {i}" for i in range(3)]
+    fingerprints = {
+        "openai/gpt-4o": [
+            _ref("p1", text, output_tokens=len(enc.encode(text)) + 9) for text in texts
+        ]
+    }
+    gateway = [_gw("p1", text, output_tokens=len(enc.encode(text)) + 9) for text in texts]
+
+    result = run(
+        gateway_responses=gateway,
+        fingerprints=fingerprints,
+        claimed_model_id="openai/gpt-4o",
+    )
+    signal_map = {s["name"]: s["score"] for s in result.details["signals"]}
+    assert signal_map.get("token_count_consistency", 0.0) >= 0.7
+
+
+def test_usage_accounting_flags_inconsistent_totals() -> None:
+    gateway = [
+        _gw("met-001", "a", prompt_tokens=10, output_tokens=5, total_tokens=20),
+        _gw("met-001", "b", prompt_tokens=12, output_tokens=6, total_tokens=18),
+        _gw("met-001", "c", prompt_tokens=9, output_tokens=4, total_tokens=30),
+    ]
+
+    result = run(gateway_responses=gateway, fingerprints={"x": []}, claimed_model_id="x")
+    signal_map = {s["name"]: s["score"] for s in result.details["signals"]}
+    assert signal_map.get("usage_accounting", 1.0) <= 0.3

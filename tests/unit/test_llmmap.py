@@ -173,3 +173,37 @@ def test_no_gateway_responses_fails_gracefully() -> None:
         claimed_model_id="anthropic/claude-opus-4",
     )
     assert result.status == "failed"
+
+
+def test_allowed_probe_ids_keep_d1_isolated_from_other_detectors() -> None:
+    fingerprints = {
+        "anthropic/claude-opus-4": [
+            *_fp("anthropic/claude-opus-4", "llmmap-001", ["I'm Claude from Anthropic."]),
+            *_fp("anthropic/claude-opus-4", "met-001", ["I'm Claude from Anthropic."]),
+        ],
+        "openai/gpt-4o": [
+            *_fp("openai/gpt-4o", "llmmap-001", ["I'm ChatGPT from OpenAI."]),
+            *_fp("openai/gpt-4o", "met-001", ["I'm ChatGPT from OpenAI."]),
+        ],
+    }
+    gateway = [
+        *_gw("llmmap-001", ["I'm Claude from Anthropic."]),
+        *_gw("met-001", ["I'm ChatGPT from OpenAI."]),
+    ]
+
+    unfiltered = run(
+        gateway_responses=gateway,
+        fingerprints=fingerprints,
+        claimed_model_id="anthropic/claude-opus-4",
+        probe_category_filter=None,
+    )
+    filtered = run(
+        gateway_responses=gateway,
+        fingerprints=fingerprints,
+        claimed_model_id="anthropic/claude-opus-4",
+        probe_category_filter=None,
+        allowed_probe_ids={"llmmap-001"},
+    )
+
+    assert unfiltered.score == 0.5
+    assert filtered.score == 1.0

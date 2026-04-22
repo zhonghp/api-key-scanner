@@ -37,6 +37,8 @@ def run(
     fingerprints: dict[str, list[FingerprintEntry]],
     claimed_model_id: str,
     probe_category_filter: str | None = "identification",
+    probe_category_by_id: dict[str, str] | None = None,
+    allowed_probe_ids: set[str] | None = None,
 ) -> DetectorResult:
     """Run D1 LLMmap.
 
@@ -45,8 +47,10 @@ def run(
         fingerprints: canonical_id -> list of FingerprintEntry (across all probes).
         claimed_model_id: canonical id to compare against.
         probe_category_filter: if set, restrict to probes in this category
-            (llmmap probes are typically 'identification' or 'refusal').
-            None = use all.
+            when `probe_category_by_id` is supplied. None = use all.
+        probe_category_by_id: optional lookup of `probe_id -> category`.
+        allowed_probe_ids: explicit allow-list of probe ids. Prefer this when
+            the caller wants D1 to consume only its assigned probes.
 
     Returns:
         DetectorResult with name='d1_llmmap', score in [0, 1], weight=0.45.
@@ -64,7 +68,18 @@ def run(
     # Group gateway samples by probe_id, filter to llmmap-relevant probes.
     # The caller usually pre-filters with Probe.category, but we also allow
     # the fingerprint entries to carry category info in the future.
-    usable_gateway = [r for r in gateway_responses if r.output and not r.error]
+    usable_gateway = [
+        r
+        for r in gateway_responses
+        if r.output
+        and not r.error
+        and _probe_allowed(
+            r.probe_id,
+            allowed_probe_ids=allowed_probe_ids,
+            probe_category_filter=probe_category_filter,
+            probe_category_by_id=probe_category_by_id,
+        )
+    ]
     if not usable_gateway:
         return DetectorResult(
             name="d1_llmmap",
@@ -78,7 +93,12 @@ def run(
     ref_by_probe: dict[str, dict[str, list[str]]] = {}
     for model_id, entries in fingerprints.items():
         for entry in entries:
-            if not entry.output:
+            if not entry.output or not _probe_allowed(
+                entry.probe_id,
+                allowed_probe_ids=allowed_probe_ids,
+                probe_category_filter=probe_category_filter,
+                probe_category_by_id=probe_category_by_id,
+            ):
                 continue
             ref_by_probe.setdefault(entry.probe_id, {}).setdefault(model_id, []).append(
                 entry.output
@@ -127,6 +147,7 @@ def run(
         status=status,
         details={
             "num_samples_scored": len(per_sample_scores),
+            "num_probe_ids_considered": len(ref_by_probe),
             "top_guess": top_guess,
             "top_guess_votes": top_count,
             "vote_counts": dict(vote_counts),
@@ -173,3 +194,17 @@ def _cosine(a: Counter[str], b: Counter[str]) -> float:
     na = sum(v * v for v in a.values()) ** 0.5
     nb = sum(v * v for v in b.values()) ** 0.5
     return dot / (na * nb) if na and nb else 0.0
+
+
+def _probe_allowed(
+    probe_id: str,
+    *,
+    allowed_probe_ids: set[str] | None,
+    probe_category_filter: str | None,
+    probe_category_by_id: dict[str, str] | None,
+) -> bool:
+    if allowed_probe_ids is not None and probe_id not in allowed_probe_ids:
+        return False
+    if probe_category_filter is None or probe_category_by_id is None:
+        return True
+    return probe_category_by_id.get(probe_id) == probe_category_filter

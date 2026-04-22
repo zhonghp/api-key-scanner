@@ -24,21 +24,13 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from api_key_scanner import __version__, aliases, fingerprint_fetch
+from api_key_scanner import __version__, aliases, evaluation, fingerprint_fetch
 from api_key_scanner import probes as probes_mod
 from api_key_scanner.aliases import UnknownModelError
-from api_key_scanner.detectors import fusion, llmmap, met, metadata
 from api_key_scanner.fingerprint_fetch import FingerprintFetchError
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
 from api_key_scanner.probes import FingerprintDataMissingError
-from api_key_scanner.schemas import (
-    Budget,
-    DetectorResult,
-    Evidence,
-    FingerprintEntry,
-    ProbeResponse,
-    Verdict,
-)
+from api_key_scanner.schemas import Budget, FingerprintEntry, Probe, Verdict
 
 logger = logging.getLogger("api_key_scanner")
 _handler = logging.StreamHandler(sys.stderr)
@@ -229,7 +221,6 @@ async def verify_gateway(
 
     # 3. Load probes (bundled JSONL)
     probe_list = probes_mod.load_probes(budget)
-
     # 4. Load fingerprints. If APIGUARD_FINGERPRINT_DIR isn't set, we fetch
     #    the latest signed GitHub Release once per process and cache it under
     #    platformdirs. The sigstore identity check is the trust anchor here.
@@ -269,49 +260,16 @@ async def verify_gateway(
             duration_ms=_elapsed_ms(t_start),
         )
 
-    # 6. Run the three detectors (all local, no network)
-    d1 = llmmap.run(
-        gateway_responses=responses,
-        fingerprints=fingerprints,
-        claimed_model_id=canonical_id,
-    )
-    d2 = met.run(
-        gateway_responses=responses,
-        fingerprints=fingerprints,
-        claimed_model_id=canonical_id,
-    )
-    d4 = metadata.run(
-        gateway_responses=responses,
-        fingerprints=fingerprints,
-        claimed_model_id=canonical_id,
-    )
-    detectors = [d1, d2, d4]
-
-    # 7. Fuse
-    trust_score = fusion.combine(detectors)
-    verdict_label = fusion.label(trust_score, detectors)
-    conf = fusion.confidence(detectors)
-
-    # 8. Evidence
-    evidence = _build_evidence(responses, detectors, include_raw=include_raw_responses)
-
-    num_failed = sum(1 for r in responses if r.error)
-
-    verdict = Verdict(
-        trust_score=trust_score,
-        verdict=verdict_label,
-        confidence=conf,
-        claimed_model=claimed_model,
-        resolved_model_id=canonical_id,
+    verdict = evaluation.evaluate_responses(
         endpoint_url=endpoint_url,
-        detectors={d.name: d for d in detectors},
-        evidence=evidence,
+        claimed_model=claimed_model,
+        canonical_id=canonical_id,
+        probe_list=probe_list,
+        responses=responses,
+        fingerprints=fingerprints,
         probe_set_version=probes_mod.PROBE_SET_VERSION,
-        fingerprint_version=probes_mod.current_fingerprint_version(),
-        mcp_version=__version__,
-        num_probes_sent=len(responses),
-        num_probes_failed=num_failed,
         duration_ms=_elapsed_ms(t_start),
+        include_raw_responses=include_raw_responses,
     )
     return verdict.model_dump()
 
@@ -346,110 +304,8 @@ def _inconclusive(
     ).model_dump()
 
 
-def _build_evidence(
-    responses: list[ProbeResponse],
-    detectors: list[DetectorResult],
-    *,
-    include_raw: bool = False,
-    max_items: int = 8,
-) -> list[Evidence]:
-    """Turn detector details + sample data into human-readable evidence items."""
-    out: list[Evidence] = []
-
-    # If any probe errored, surface the first error so users can see WHY.
-    # The gateway client already scrubs API keys; error strings are safe to
-    # show. This is the most-requested diagnostic when "all probes failed".
-    error_responses = [r for r in responses if r.error]
-    if error_responses:
-        sample = error_responses[0]
-        error_text = (sample.error or "")[:220]
-        out.append(
-            Evidence(
-                probe_id=sample.probe_id,
-                category="metadata",
-                observation=(
-                    f"{len(error_responses)}/{len(responses)} probes failed. "
-                    f"first error: {error_text}"
-                ),
-                severity="alarm",
-            )
-        )
-
-    # D1: surface the nearest-neighbor voting disagreement (if any)
-    d1 = _find_detector(detectors, "d1_llmmap")
-    if d1 and d1.status != "failed":
-        top_guess = d1.details.get("top_guess")
-        votes = d1.details.get("top_guess_votes", 0)
-        total_scored = d1.details.get("num_samples_scored", 0)
-        if top_guess and d1.score < 1.0:
-            out.append(
-                Evidence(
-                    probe_id="llmmap-aggregate",
-                    category="identification",
-                    observation=(
-                        f"D1 LLMmap: top-guess is {top_guess} ({votes}/{total_scored} samples), "
-                        f"score {d1.score:.2f}"
-                    ),
-                    severity="alarm" if d1.score == 0.0 else "warn",
-                )
-            )
-
-    # D2: surface the worst-rejected probes
-    d2 = _find_detector(detectors, "d2_met")
-    if d2 and d2.status != "failed":
-        per_probe = d2.details.get("per_probe") or []
-        per_probe_sorted = sorted(per_probe, key=lambda p: p.get("p_value", 1.0))
-        for entry in per_probe_sorted[:2]:
-            p_val = entry.get("p_value", 1.0)
-            if p_val < 0.1:
-                out.append(
-                    Evidence(
-                        probe_id=entry.get("probe_id", "?"),
-                        category="creative",
-                        observation=(
-                            f"D2 MET: MMD two-sample test rejected at p={p_val:.3f} "
-                            f"(gateway distribution diverges from reference)"
-                        ),
-                        severity="alarm" if p_val < 0.02 else "warn",
-                    )
-                )
-
-    # D4: surface fired signals
-    d4 = _find_detector(detectors, "d4_metadata")
-    if d4 and d4.status != "failed":
-        for sig in d4.details.get("signals", []):
-            if sig.get("score", 1.0) <= 0.3:
-                out.append(
-                    Evidence(
-                        probe_id="metadata-aggregate",
-                        category="metadata",
-                        observation=f"D4 {sig['name']}: {sig['reason']}",
-                        severity="alarm" if sig["score"] <= 0.3 else "warn",
-                    )
-                )
-
-    # Raw samples only if user opted in (verbose mode)
-    if include_raw:
-        for r in responses[:3]:
-            if r.output:
-                short = r.output[:120] + ("..." if len(r.output) > 120 else "")
-                out.append(
-                    Evidence(
-                        probe_id=r.probe_id,
-                        category="identification",
-                        observation=f'sample[{r.sample_index}]: "{short}"',
-                        severity="info",
-                    )
-                )
-
-    return out[:max_items]
-
-
-def _find_detector(detectors: list[DetectorResult], name: str) -> DetectorResult | None:
-    for d in detectors:
-        if d.name == name:
-            return d
-    return None
+def _build_detector_probe_ids(probes: list[Probe]) -> dict[str, set[str]]:
+    return evaluation.build_detector_probe_ids(probes)
 
 
 # Re-export for callers that want to build their own probes from outside
