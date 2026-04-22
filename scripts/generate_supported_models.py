@@ -111,9 +111,7 @@ def render(
         entry = models[cid] or {}
         model_id, endpoint = endpoints.get(cid, ("?", "?"))
         samples = entry.get("num_samples", 0)
-        rows.append(
-            f"| `{cid}` | `{model_id}` | `{endpoint}` | {samples} | `{probe_set}` |"
-        )
+        rows.append(f"| `{cid}` | `{model_id}` | `{endpoint}` | {samples} | `{probe_set}` |")
 
     if not rows:
         rows.append(f"| _no models in current release_ | — | — | 0 | `{probe_set}` |")

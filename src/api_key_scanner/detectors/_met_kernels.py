@@ -79,9 +79,7 @@ def hamming_gram(sequences: list[tuple[int, ...]]) -> list[list[float]]:
     return gram
 
 
-def mmd_squared(
-    gram: list[list[float]], x_idx: list[int], y_idx: list[int]
-) -> float:
+def mmd_squared(gram: list[list[float]], x_idx: list[int], y_idx: list[int]) -> float:
     """Biased MMD² estimator from a precomputed Gram matrix.
 
     ``MMD²(X, Y) = (1/n²) ΣᵢⱼK(xᵢ,xⱼ) + (1/m²) ΣᵢⱼK(yᵢ,yⱼ) -

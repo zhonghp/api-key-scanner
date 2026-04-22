@@ -220,10 +220,7 @@ def current_probe_set_version() -> str:
     """
     version = os.environ.get(_PROBE_SET_VERSION_ENV, PROBE_SET_VERSION)
     if version not in _BUNDLED_FILES:
-        raise ValueError(
-            f"unknown probe set version: {version}; "
-            f"valid: {sorted(_BUNDLED_FILES)}"
-        )
+        raise ValueError(f"unknown probe set version: {version}; valid: {sorted(_BUNDLED_FILES)}")
     return version
 
 

@@ -111,9 +111,7 @@ def run(
         gw_seqs = [pad_unicode(s, pad_length) for s in gw_samples]
         ref_seqs = [pad_unicode(s, pad_length) for s in ref_samples]
 
-        p_val, mmd2 = two_sample_permutation_pvalue(
-            gw_seqs, ref_seqs, b=num_permutations, rng=rng
-        )
+        p_val, mmd2 = two_sample_permutation_pvalue(gw_seqs, ref_seqs, b=num_permutations, rng=rng)
         per_probe.append(
             _ProbePValue(
                 probe_id=probe_id,
