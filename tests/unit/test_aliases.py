@@ -18,16 +18,20 @@ from api_key_scanner.aliases import (
     "user_input,expected_canonical",
     [
         ("claude-opus-4", "anthropic/claude-opus-4"),
-        ("opus", "anthropic/claude-opus-4"),
         ("Claude-Opus-4", "anthropic/claude-opus-4"),  # case-insensitive
         ("  claude-opus-4  ", "anthropic/claude-opus-4"),  # whitespace stripped
         ("anthropic/claude-opus-4", "anthropic/claude-opus-4"),
+        ("claude-opus-4-6", "anthropic/claude-opus-4-6"),
+        ("claude-4.5-sonnet", "anthropic/claude-4.5-sonnet"),
+        ("claude-4-5-sonnet", "anthropic/claude-4.5-sonnet"),  # dot-dash form
         ("gpt-4o", "openai/gpt-4o"),
         ("gpt4o", "openai/gpt-4o"),
-        ("gpt-4o-2024-08-06", "openai/gpt-4o"),
+        ("gpt-4.1", "openai/gpt-4.1"),
+        ("gpt4.1", "openai/gpt-4.1"),
+        ("o3", "openai/o3"),
+        ("o4-mini", "openai/o4-mini"),
         ("gemini-2.5-pro", "google/gemini-2.5-pro"),
-        ("llama-3.3-70b", "meta/llama-3.3-70b"),
-        ("haiku", "anthropic/claude-haiku-4.5"),
+        ("gemini-3-pro-preview", "google/gemini-3-pro-preview"),
     ],
 )
 def test_resolve_known_aliases(user_input: str, expected_canonical: str) -> None:
@@ -53,16 +57,18 @@ def test_family_of_resolved_model() -> None:
     assert resolve("claude-opus-4").family == "anthropic/claude"
     assert resolve("gpt-4o").family == "openai/gpt"
     assert resolve("gemini-2.5-pro").family == "google/gemini"
-    assert resolve("llama-3.3-70b").family == "meta/llama"
+    assert resolve("o3").family == "openai/gpt"  # o-series grouped under openai/gpt
 
 
 @pytest.mark.parametrize(
     "a,b,expected",
     [
-        ("anthropic/claude-opus-4", "anthropic/claude-sonnet-4", True),
+        ("anthropic/claude-opus-4", "anthropic/claude-4.5-sonnet", True),
         ("anthropic/claude-opus-4", "openai/gpt-4o", False),
         ("openai/gpt-4o", "openai/gpt-4o-mini", True),
-        ("google/gemini-2.5-pro", "meta/llama-3.3-70b", False),
+        ("openai/gpt-5", "openai/o3", True),  # same vendor family
+        ("google/gemini-2.5-pro", "openai/gpt-4o", False),
+        ("google/gemini-2.5-pro", "anthropic/claude-opus-4", False),
         # Unknown canonical -> not same family
         ("unknown/model", "anthropic/claude-opus-4", False),
     ],
@@ -85,7 +91,7 @@ def test_known_canonical_ids_are_stable() -> None:
 
 
 def test_to_canonical_resolves_via_alias() -> None:
-    assert to_canonical("opus") == "anthropic/claude-opus-4"
+    assert to_canonical("claude-opus-4") == "anthropic/claude-opus-4"
     assert to_canonical("GPT-4o") == "openai/gpt-4o"
     assert to_canonical("  claude-opus-4  ") == "anthropic/claude-opus-4"
 

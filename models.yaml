@@ -3,98 +3,242 @@
 # Consumed by scripts/collect_all.py (M3 batch collection driver) and by
 # .github/workflows/weekly-fingerprint-collect.yml (scheduled runner).
 #
-# Each entry describes ONE model to collect from its VENDOR DIRECT endpoint.
-# - canonical_id: must be in aliases.json's canonical[] list; the file written
-#                 is fingerprints/<vendor>/<model>.jsonl
+# Each entry describes ONE model to collect. All current entries route
+# through the shared internal gateway (aigateway.edgecloudapp.com)
+# against one API key (OPENAI_API_KEY env var), which — per the gateway
+# owner — proxies requests to the right upstream vendor based on the
+# `model` field we send. Note that reference fingerprints collected
+# this way carry whatever substitution the gateway might be doing;
+# see `release_allowed: false` tracking in PR #3 for the plan to mark
+# non-vendor-direct references as ineligible for public release.
+#
+# Field semantics:
+# - canonical_id: must be in aliases.json's canonical[] list; the file
+#                 written is fingerprints/<vendor>/<model>.jsonl
 # - endpoint:     OpenAI-compatible base URL
-# - model_id:     the string the vendor's API accepts in the `model` field
+# - model_id:     the string this endpoint accepts in the `model` field
 # - key_env:      NAME of env var holding the API key (NOT the key itself)
-# - budget:       cheap | standard | deep (see probes.py _BUDGET_PROBE_COUNT)
+# - budget:       cheap | standard (see probes.py _BUDGET_CONFIG)
 # - enabled:      set false to skip without deleting the entry
 #
-# Keys must be in the runner's environment (GitHub Secrets in CI). Missing
-# keys cause that model to be skipped with a warning; the run doesn't fail.
+# The key must be in the runner's environment (GitHub Secrets in CI).
+# Missing key -> whole run fails (since all entries share one key). If
+# a specific model_id isn't registered on the gateway, that single
+# entry gets skipped with a 404 warning; the run continues.
 
 collection:
-  probe_set_version: v1
-  # Default budget for entries that don't override. Keep modest — weekly cost
-  # scales linearly with this.
-  default_budget: standard
+  probe_set_version: v2
+  # Default budget for entries that don't override. Keep modest — weekly
+  # cost scales linearly with this. `standard` = 258 calls (full MET paper
+  # N=250 + 8 banner probes); `cheap` = 18 calls (smoke test). Override on
+  # a per-entry basis with `budget: standard` where a specific model
+  # warrants the full protocol.
+  default_budget: cheap
 
 models:
-  # OpenAI family — only gpt-5.4 variants are active; everything else is
-  # disabled while we iterate on the internal gateway.
+  # ---- OpenAI family ---------------------------------------------------------
+  - canonical_id: openai/gpt-4.1
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-4.1
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-4.1-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-4.1-mini
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/o3
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: o3
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/o4-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: o4-mini
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-4o
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-4o
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-4o-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-4o-mini
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-4-turbo
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-4-turbo
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5-mini
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5-nano
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5-nano
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.1
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.1
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.1-codex-max
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.1-codex-max
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.1-chat-latest
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.1-chat-latest
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.2
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.2
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.2-codex
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.2-codex
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.3-codex
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.3-codex
+    key_env: OPENAI_API_KEY
+    enabled: true
+
   - canonical_id: openai/gpt-5.4
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.4
     key_env: OPENAI_API_KEY
     enabled: true
 
-  - canonical_id: openai/gpt-5.4-mini
+  # ---- Anthropic family -----------------------------------------------------
+  - canonical_id: anthropic/claude-3.5-haiku
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
-    model_id: gpt-5.4-mini
+    model_id: claude-3.5-haiku
     key_env: OPENAI_API_KEY
     enabled: true
 
-  - canonical_id: openai/gpt-4o
-    endpoint: https://api.openai.com/v1
-    model_id: gpt-4o
+  - canonical_id: anthropic/claude-4.5-haiku
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-4.5-haiku
     key_env: OPENAI_API_KEY
-    enabled: false
+    enabled: true
 
-  - canonical_id: openai/gpt-4o-mini
-    endpoint: https://api.openai.com/v1
-    model_id: gpt-4o-mini
+  - canonical_id: anthropic/claude-3.7-sonnet
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-3.7-sonnet
     key_env: OPENAI_API_KEY
-    enabled: false
+    enabled: true
 
-  - canonical_id: openai/gpt-5
-    endpoint: https://api.openai.com/v1
-    model_id: gpt-5
+  - canonical_id: anthropic/claude-4.0-sonnet
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-4.0-sonnet
     key_env: OPENAI_API_KEY
-    enabled: false
+    enabled: true
 
-  - canonical_id: openai/gpt-5-mini
-    endpoint: https://api.openai.com/v1
-    model_id: gpt-5-mini
+  - canonical_id: anthropic/claude-4.5-sonnet
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-4.5-sonnet
     key_env: OPENAI_API_KEY
-    enabled: false
+    enabled: true
 
-  # Anthropic family — uses OpenAI-compatible endpoint (Anthropic's compat mode)
+  - canonical_id: anthropic/claude-sonnet-4-6
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-sonnet-4-6
+    key_env: OPENAI_API_KEY
+    enabled: true
+
   - canonical_id: anthropic/claude-opus-4
-    endpoint: https://api.anthropic.com/v1/openai
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4
-    key_env: ANTHROPIC_API_KEY
-    enabled: false
+    key_env: OPENAI_API_KEY
+    enabled: true
 
-  - canonical_id: anthropic/claude-sonnet-4
-    endpoint: https://api.anthropic.com/v1/openai
-    model_id: claude-sonnet-4
-    key_env: ANTHROPIC_API_KEY
-    enabled: false
+  - canonical_id: anthropic/claude-opus-4-1
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-opus-4-1
+    key_env: OPENAI_API_KEY
+    enabled: true
 
-  - canonical_id: anthropic/claude-haiku-4.5
-    endpoint: https://api.anthropic.com/v1/openai
-    model_id: claude-haiku-4.5
-    key_env: ANTHROPIC_API_KEY
-    enabled: false
+  - canonical_id: anthropic/claude-opus-4-5
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-opus-4-5
+    key_env: OPENAI_API_KEY
+    enabled: true
 
-  # Google family
+  - canonical_id: anthropic/claude-opus-4-6
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-opus-4-6
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  # ---- Google family --------------------------------------------------------
+  - canonical_id: google/gemini-3-pro-preview
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gemini-3-pro-preview
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: google/gemini-3.1-pro-preview
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gemini-3.1-pro-preview
+    key_env: OPENAI_API_KEY
+    enabled: true
+
   - canonical_id: google/gemini-2.5-pro
-    endpoint: https://generativelanguage.googleapis.com/v1beta/openai
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-pro
-    key_env: GOOGLE_API_KEY
-    enabled: false
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: google/gemini-3-flash-preview
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gemini-3-flash-preview
+    key_env: OPENAI_API_KEY
+    enabled: true
 
   - canonical_id: google/gemini-2.5-flash
-    endpoint: https://generativelanguage.googleapis.com/v1beta/openai
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-flash
-    key_env: GOOGLE_API_KEY
-    enabled: false
+    key_env: OPENAI_API_KEY
+    enabled: true
 
-  # Open-source reference model (Meta Llama via any OpenAI-compat host)
-  - canonical_id: meta/llama-3.3-70b
-    endpoint: https://api.together.xyz/v1
-    model_id: meta-llama/Meta-Llama-3.3-70B-Instruct
-    key_env: TOGETHER_API_KEY
-    enabled: false
+  - canonical_id: google/gemini-2.0-flash
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gemini-2.0-flash
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: google/gemini-2.5-flash-lite
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gemini-2.5-flash-lite
+    key_env: OPENAI_API_KEY
+    enabled: true

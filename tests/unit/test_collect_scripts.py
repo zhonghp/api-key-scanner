@@ -277,14 +277,15 @@ def test_generate_supported_models_builds_table(tmp_path: Path) -> None:
         json.dumps(
             {
                 "collected_at": "2026-04-21T08:56:13.616901+00:00",
+                "probe_set_version": "v2",
                 "models": {
                     "openai/gpt-5.4": {
                         "file": "openai/gpt-5.4.jsonl",
                         "num_samples": 58,
                         "sha256": "x" * 64,
                     },
-                    "openai/gpt-5.4-mini": {
-                        "file": "openai/gpt-5.4-mini.jsonl",
+                    "openai/gpt-5": {
+                        "file": "openai/gpt-5.jsonl",
                         "num_samples": 57,
                         "sha256": "y" * 64,
                     },
@@ -298,8 +299,8 @@ def test_generate_supported_models_builds_table(tmp_path: Path) -> None:
         "  - canonical_id: openai/gpt-5.4\n"
         "    model_id: gpt-5.4\n"
         "    endpoint: https://gw.example.com/v1\n"
-        "  - canonical_id: openai/gpt-5.4-mini\n"
-        "    model_id: gpt-5.4-mini\n"
+        "  - canonical_id: openai/gpt-5\n"
+        "    model_id: gpt-5\n"
         "    endpoint: https://gw.example.com/v1\n"
     )
     out = tmp_path / "SUPPORTED_MODELS.md"
@@ -320,11 +321,14 @@ def test_generate_supported_models_builds_table(tmp_path: Path) -> None:
     assert "fingerprint-2026-04-21-test" in content
     assert "2026-04-21" in content  # date pulled from collected_at
     assert "`openai/gpt-5.4`" in content
-    assert "`openai/gpt-5.4-mini`" in content
+    assert "`openai/gpt-5`" in content
     assert "`gpt-5.4`" in content
     assert "https://gw.example.com/v1" in content
     assert "| 58 |" in content
     assert "| 57 |" in content
+    # probe_set column reflects the MANIFEST field
+    assert "`v2`" in content
+    assert "Probe 集" in content  # column header rendered
 
 
 def test_generate_supported_models_missing_endpoint_uses_question_mark(
