@@ -19,7 +19,11 @@
 # - model_id:     the string this endpoint accepts in the `model` field
 # - key_env:      NAME of env var holding the API key (NOT the key itself)
 # - budget:       cheap | standard (see probes.py _BUDGET_CONFIG)
-# - enabled:      set false to skip without deleting the entry
+# - enabled:      set false to skip without deleting the entry. Disabled
+#                 entries carry an inline `# disabled: <reason>` comment
+#                 pointing at tracking issue #4 (reasoning / implicit-
+#                 thinking / gateway-failing models). Follow the re-enable
+#                 procedure in that issue to un-mute them.
 #
 # The key must be in the runner's environment (GitHub Secrets in CI).
 # Missing key -> whole run fails (since all entries share one key). If
@@ -53,13 +57,15 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: o3
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model — default thinking exhausts max_tokens (2/18 samples) — #4
+    enabled: false
 
   - canonical_id: openai/o4-mini
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: o4-mini
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model — default thinking exhausts max_tokens (2/18 samples) — #4
+    enabled: false
 
   - canonical_id: openai/gpt-4o
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -83,19 +89,22 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model (default medium effort) — 1/18 samples — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5-mini
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5-mini
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model — 1/18 samples — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5-nano
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5-nano
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model — 0/18 samples — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5.1
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -113,13 +122,15 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.1-chat-latest
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: 1/18 transient empty on MET — confirm stability before re-enable — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5.2
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.2
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model (default thinking on) — 13/18 samples — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5.2-codex
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -131,7 +142,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.3-codex
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: reasoning model — 0/18 samples — #4
+    enabled: false
 
   - canonical_id: openai/gpt-5.4
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -144,7 +156,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-3.5-haiku
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: gateway systematic HTTP 502 on met-v2-001 (3/18 samples) — #4
+    enabled: false
 
   - canonical_id: anthropic/claude-4.5-haiku
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -156,7 +169,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-3.7-sonnet
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: gateway systematic HTTP 503 on all probes (0/18 samples) — #4
+    enabled: false
 
   - canonical_id: anthropic/claude-4.0-sonnet
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -174,7 +188,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-sonnet-4-6
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: implicit thinking mode causes scattered MET empties (16/18 samples) — #4
+    enabled: false
 
   - canonical_id: anthropic/claude-opus-4
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -186,7 +201,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4-1
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: gateway systematic HTTP 502 on met-v2-001 (3/18 samples) — #4
+    enabled: false
 
   - canonical_id: anthropic/claude-opus-4-5
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -198,14 +214,16 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4-6
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: implicit thinking + read timeouts on MET (13/18 samples) — #4
+    enabled: false
 
   # ---- Google family --------------------------------------------------------
   - canonical_id: google/gemini-3-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-pro-preview
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: implicit thinking (Gemini Pro default) — 14/18 samples (MET timeouts) — #4
+    enabled: false
 
   - canonical_id: google/gemini-3.1-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -217,7 +235,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-pro
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled: implicit thinking (Gemini 2.5 Pro default) — 15/18 samples (MET empties) — #4
+    enabled: false
 
   - canonical_id: google/gemini-3-flash-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
