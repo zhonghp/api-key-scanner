@@ -7,17 +7,20 @@ These cover schema + env-var guard behavior. End-to-end orchestration
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
+import httpx
 import pytest
+import respx
 
 from api_key_scanner import __version__
-from api_key_scanner.schemas import Verdict
-from api_key_scanner.server import verify_gateway
+from api_key_scanner.schemas import ModelManifestEntry, Verdict
+from api_key_scanner.server import _reference_not_comparable_reason, verify_gateway
 
 
 @pytest.fixture(autouse=True)
 def _clear_known_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("MY_TEST_KEY", "APIGUARD_FINGERPRINT_DIR"):
+    for var in ("MY_TEST_KEY", "APIGUARD_FINGERPRINT_DIR", "APIGUARD_OFFLINE"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -50,9 +53,7 @@ async def test_missing_env_var_returns_inconclusive() -> None:
     assert "sk-" not in result["disclaimer"]  # sanity
 
 
-async def test_verdict_has_stable_shape(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
-) -> None:
+async def test_verdict_has_stable_shape(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Even on the no-fingerprints-configured path, the Verdict shape is stable."""
     monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
     # Force offline + empty cache so auto-fetch can't find data on dev boxes
@@ -104,6 +105,33 @@ async def test_verdict_never_leaks_key(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
 
     assert secret not in json.dumps(result)
+
+
+def test_reference_with_metadata_anomaly_is_still_comparable() -> None:
+    entry = ModelManifestEntry.model_validate(
+        {
+            "file": "openai/gpt-5.4.jsonl",
+            "sha256": "x" * 64,
+            "num_probes": 1,
+            "num_samples": 1,
+            "quality": {
+                "expected_num_probes": 1,
+                "expected_samples": 1,
+                "actual_samples": 1,
+                "per_probe_expected_samples": {"llmmap-v2-01": 1},
+                "per_probe_actual_samples": {"llmmap-v2-01": 1},
+                "metadata_anomalies": [
+                    {
+                        "kind": "reasoning_tokens_present",
+                        "probe_id": "llmmap-v2-01",
+                        "sample_index": 0,
+                        "reasoning_tokens": 12,
+                    }
+                ],
+            },
+        }
+    )
+    assert _reference_not_comparable_reason(entry) is None
 
 
 def test_dotenv_loader_noop_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,10 +226,23 @@ async def test_list_supported_models_returns_manifest_contents(
     (fp_dir / "MANIFEST.json").write_text(
         _json.dumps(
             {
+                "version": "v2026.04.21",
+                "probe_set_version": "v2",
+                "collected_at": "2026-04-21T00:00:00+00:00",
+                "collector_version": "0.1.0",
                 "models": {
-                    "openai/gpt-5.4": {"file": "openai/gpt-5.4.jsonl", "sha256": "x"},
-                    "openai/gpt-5": {"file": "openai/gpt-5.jsonl", "sha256": "y"},
-                }
+                    "openai/gpt-5.4": {
+                        "file": "openai/gpt-5.4.jsonl",
+                        "sha256": "x",
+                        "num_samples": 1,
+                    },
+                    "openai/gpt-5": {
+                        "file": "openai/gpt-5.jsonl",
+                        "sha256": "y",
+                        "num_samples": 1,
+                    },
+                },
+                "probes_snapshot": {},
             }
         )
     )
@@ -213,6 +254,169 @@ async def test_list_supported_models_returns_manifest_contents(
     assert result["status"] == "ok"
     assert result["fingerprint_tag"] == "fingerprint-2026-04-21"
     assert result["models"] == ["openai/gpt-5", "openai/gpt-5.4"]
+
+
+@respx.mock
+async def test_verify_gateway_applies_manifest_request_overrides(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json as _json
+
+    fp_dir = tmp_path / "fp"
+    (fp_dir / "openai").mkdir(parents=True)
+    (fp_dir / "openai" / "gpt-5.4.jsonl").write_text(
+        _json.dumps(
+            {
+                "probe_id": "llmmap-v2-01",
+                "sample_index": 0,
+                "output": "hi",
+                "output_tokens": 1,
+                "response_ms": 100,
+                "system_fingerprint": None,
+                "finish_reason": "stop",
+                "collected_at": "2026-04-21T00:00:00Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (fp_dir / "MANIFEST.json").write_text(
+        _json.dumps(
+            {
+                "version": "v2026.04.21",
+                "probe_set_version": "v2",
+                "collected_at": "2026-04-21T00:00:00+00:00",
+                "collector_version": "0.1.0",
+                "models": {
+                    "openai/gpt-5.4": {
+                        "file": "openai/gpt-5.4.jsonl",
+                        "sha256": "x" * 64,
+                        "num_probes": 1,
+                        "num_samples": 1,
+                        "provenance": {"reference_mode": "vendor_direct"},
+                        "quality": {
+                            "probe_set_version": "v2",
+                            "expected_num_probes": 1,
+                            "expected_samples": 1,
+                            "actual_samples": 1,
+                            "per_probe_expected_samples": {"llmmap-v2-01": 1},
+                            "per_probe_actual_samples": {"llmmap-v2-01": 1},
+                        },
+                        "request_overrides": {"reasoning_effort": "minimal"},
+                        "request_omit_fields": ["temperature"],
+                        "verification_overrides_required": True,
+                    }
+                },
+                "probes_snapshot": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("APIGUARD_FINGERPRINT_DIR", str(fp_dir))
+    monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
+
+    captured_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_payloads.append(_json.loads(request.content.decode("utf-8")))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"completion_tokens": 1, "prompt_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    respx.post("https://example.com/v1/chat/completions").mock(side_effect=handler)
+
+    result = await verify_gateway(
+        endpoint_url="https://example.com/v1",
+        claimed_model="openai/gpt-5.4",
+        api_key_env_var="MY_TEST_KEY",
+    )
+
+    assert result["verdict"] != "inconclusive"
+    assert captured_payloads
+    assert all(payload["reasoning_effort"] == "minimal" for payload in captured_payloads)
+    assert all("temperature" not in payload for payload in captured_payloads)
+
+
+@respx.mock
+async def test_verify_gateway_rejects_protected_request_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import json as _json
+
+    fp_dir = tmp_path / "fp"
+    (fp_dir / "openai").mkdir(parents=True)
+    (fp_dir / "openai" / "gpt-5.4.jsonl").write_text(
+        _json.dumps(
+            {
+                "probe_id": "llmmap-v2-01",
+                "sample_index": 0,
+                "output": "hi",
+                "output_tokens": 1,
+                "response_ms": 100,
+                "system_fingerprint": None,
+                "finish_reason": "stop",
+                "collected_at": "2026-04-21T00:00:00Z",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (fp_dir / "MANIFEST.json").write_text(
+        _json.dumps(
+            {
+                "version": "v2026.04.21",
+                "probe_set_version": "v2",
+                "collected_at": "2026-04-21T00:00:00+00:00",
+                "collector_version": "0.1.0",
+                "models": {
+                    "openai/gpt-5.4": {
+                        "file": "openai/gpt-5.4.jsonl",
+                        "sha256": "x" * 64,
+                        "num_probes": 1,
+                        "num_samples": 1,
+                        "provenance": {"reference_mode": "vendor_direct"},
+                        "quality": {
+                            "probe_set_version": "v2",
+                            "expected_num_probes": 1,
+                            "expected_samples": 1,
+                            "actual_samples": 1,
+                            "per_probe_expected_samples": {"llmmap-v2-01": 1},
+                            "per_probe_actual_samples": {"llmmap-v2-01": 1},
+                        },
+                    }
+                },
+                "probes_snapshot": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    route = respx.post("https://example.com/v1/chat/completions").respond(
+        200,
+        json={
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"completion_tokens": 1, "prompt_tokens": 1, "total_tokens": 2},
+        },
+    )
+
+    monkeypatch.setenv("APIGUARD_FINGERPRINT_DIR", str(fp_dir))
+    monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
+
+    result = await verify_gateway(
+        endpoint_url="https://example.com/v1",
+        claimed_model="openai/gpt-5.4",
+        api_key_env_var="MY_TEST_KEY",
+        request_overrides={"temperature": 0.7},
+    )
+
+    assert result["verdict"] == "inconclusive"
+    assert "protected payload field 'temperature'" in result["disclaimer"]
+    assert route.call_count == 0
 
 
 async def test_list_supported_models_unavailable_when_no_fingerprints(

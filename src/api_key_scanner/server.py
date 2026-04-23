@@ -36,8 +36,12 @@ from api_key_scanner.schemas import (
     DetectorResult,
     Evidence,
     FingerprintEntry,
+    Manifest,
+    ModelManifestEntry,
     ProbeResponse,
     Verdict,
+    validate_request_omit_fields,
+    validate_request_overrides_dict,
 )
 
 logger = logging.getLogger("api_key_scanner")
@@ -136,10 +140,27 @@ async def list_supported_models() -> dict[str, Any]:
     manifest_path = fp_dir / "MANIFEST.json"
     if manifest_path.is_file():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            models = sorted(manifest.get("models", {}).keys())
-            return {"status": "ok", "fingerprint_tag": tag, "models": models}
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+            models = sorted(manifest.models.keys())
+            model_details = {
+                canonical_id: {
+                    "reference_mode": entry.provenance.get("reference_mode"),
+                    "verification_overrides_required": entry.verification_overrides_required,
+                    "request_overrides": entry.request_overrides,
+                    "request_omit_fields": entry.request_omit_fields,
+                    "budget": entry.quality.budget,
+                    "expected_samples": entry.quality.expected_samples,
+                    "actual_samples": entry.quality.actual_samples,
+                }
+                for canonical_id, entry in manifest.models.items()
+            }
+            return {
+                "status": "ok",
+                "fingerprint_tag": tag,
+                "models": models,
+                "model_details": model_details,
+            }
+        except Exception as exc:
             logger.warning("could not parse %s: %s", manifest_path, exc)
 
     # Fallback: enumerate <vendor>/<model>.jsonl directly.
@@ -162,6 +183,8 @@ async def verify_gateway(
     budget: Budget = "cheap",
     offline: bool = False,
     include_raw_responses: bool = False,
+    request_overrides: dict[str, Any] | None = None,
+    request_omit_fields: list[str] | None = None,
 ) -> dict[str, Any]:
     """Verify whether an LLM API gateway is actually serving the claimed model.
 
@@ -178,6 +201,12 @@ async def verify_gateway(
             - "standard": ~258 calls, full MET paper protocol
         offline: If True, skip any network-dependent fingerprint fetch (M3).
         include_raw_responses: Embed raw gateway outputs in evidence (verbose).
+        request_overrides: Additional payload fields for endpoints that require
+            model-specific request semantics. Required reference overrides from
+            MANIFEST.json are applied automatically and cannot be contradicted.
+        request_omit_fields: Payload fields to omit for endpoints that reject
+            some OpenAI-compatible defaults. Required reference omissions from
+            MANIFEST.json are applied automatically.
 
     Returns:
         Verdict dict with trust_score (0-1) and detailed evidence.
@@ -234,6 +263,7 @@ async def verify_gateway(
     #    the latest signed GitHub Release once per process and cache it under
     #    platformdirs. The sigstore identity check is the trust anchor here.
     fp_dir = await _resolve_fingerprint_dir(offline=offline)
+    manifest_entry = _load_manifest_entry(fp_dir, canonical_id)
     try:
         fingerprints = probes_mod.load_fingerprints(canonical_id, fingerprint_dir=fp_dir)
     except FingerprintDataMissingError as exc:
@@ -249,11 +279,43 @@ async def verify_gateway(
         )
 
     # 5. Call gateway — this is where the raw key is used, and the only place.
+    reference_issue = _reference_not_comparable_reason(manifest_entry)
+    if reference_issue:
+        return _inconclusive(
+            endpoint_url=endpoint_url,
+            claimed_model=claimed_model,
+            resolved_id=canonical_id,
+            reason=reference_issue,
+            duration_ms=_elapsed_ms(t_start),
+        )
+
+    try:
+        effective_request_overrides = _merge_verification_overrides(
+            manifest_entry.request_overrides if manifest_entry else {},
+            request_overrides,
+        )
+        effective_request_omit_fields = _merge_verification_omit_fields(
+            manifest_entry.request_omit_fields if manifest_entry else [],
+            request_omit_fields,
+        )
+        validate_request_overrides_dict(effective_request_overrides)
+        validate_request_omit_fields(effective_request_omit_fields)
+    except ValueError as exc:
+        return _inconclusive(
+            endpoint_url=endpoint_url,
+            claimed_model=claimed_model,
+            resolved_id=canonical_id,
+            reason=str(exc),
+            duration_ms=_elapsed_ms(t_start),
+        )
+
     client = OpenAICompatClient(
         ClientConfig(
             endpoint_url=endpoint_url,
             api_key=api_key,
             model=claimed_model,
+            request_overrides=effective_request_overrides,
+            request_omit_fields=effective_request_omit_fields,
         )
     )
     try:
@@ -341,6 +403,98 @@ async def verify_gateway(
 
 def _elapsed_ms(t_start: float) -> int:
     return int((time.perf_counter() - t_start) * 1000)
+
+
+def _load_manifest(fp_dir: Path | None) -> Manifest | None:
+    if fp_dir is None:
+        return None
+    manifest_path = fp_dir / "MANIFEST.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        return Manifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("could not parse %s: %s", manifest_path, exc)
+        return None
+
+
+def _load_manifest_entry(fp_dir: Path | None, canonical_id: str) -> ModelManifestEntry | None:
+    manifest = _load_manifest(fp_dir)
+    if manifest is None:
+        return None
+    return manifest.models.get(canonical_id)
+
+
+def _reference_not_comparable_reason(entry: ModelManifestEntry | None) -> str | None:
+    if entry is None:
+        return None
+    quality = entry.quality
+    if (
+        quality.expected_samples is not None
+        and quality.actual_samples is not None
+        and quality.expected_samples != quality.actual_samples
+    ):
+        return (
+            "Reference fingerprint is incomplete: "
+            f"expected {quality.expected_samples} samples but manifest records "
+            f"{quality.actual_samples}. Re-collect before verifying."
+        )
+    if quality.missing_probe_ids or quality.incomplete_probe_ids:
+        return (
+            "Reference fingerprint is incomplete and not safely comparable: "
+            f"missing_probe_ids={quality.missing_probe_ids}, "
+            f"incomplete_probe_ids={quality.incomplete_probe_ids}"
+        )
+    return None
+
+
+def _merge_verification_overrides(
+    required: dict[str, Any], provided: dict[str, Any] | None
+) -> dict[str, Any]:
+    merged = json.loads(json.dumps(required)) if required else {}
+    if not provided:
+        return merged
+    for key, value in provided.items():
+        if key in required:
+            merged[key] = _merge_required_override_value(required[key], value, path=key)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_required_override_value(required: Any, provided: Any, *, path: str) -> Any:
+    if isinstance(required, dict):
+        if not isinstance(provided, dict):
+            raise ValueError(
+                f"request_overrides conflict for {path}: reference requires a mapping value"
+            )
+        merged = dict(required)
+        for key, value in provided.items():
+            child_path = f"{path}.{key}"
+            if key in required:
+                merged[key] = _merge_required_override_value(required[key], value, path=child_path)
+            else:
+                merged[key] = value
+        return merged
+    if required != provided:
+        raise ValueError(
+            f"request_overrides conflict for {path}: reference requires {required!r} "
+            f"but caller supplied {provided!r}"
+        )
+    return required
+
+
+def _merge_verification_omit_fields(required: list[str], provided: list[str] | None) -> list[str]:
+    merged = list(required)
+    if provided is None:
+        return merged
+    validate_request_omit_fields(provided)
+    seen = set(merged)
+    for field in provided:
+        if field not in seen:
+            merged.append(field)
+            seen.add(field)
+    return merged
 
 
 def _inconclusive(

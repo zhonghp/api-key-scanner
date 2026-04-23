@@ -9,6 +9,7 @@ field.
 from __future__ import annotations
 
 import httpx
+import pytest
 import respx
 
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
@@ -42,7 +43,12 @@ async def test_happy_path_returns_parsed_response() -> None:
     respx.post("https://fake.example.com/v1/chat/completions").respond(
         json={
             "choices": [{"message": {"content": "Hi!"}, "finish_reason": "stop"}],
-            "usage": {"completion_tokens": 2, "prompt_tokens": 5, "total_tokens": 7},
+            "usage": {
+                "completion_tokens": 2,
+                "prompt_tokens": 5,
+                "total_tokens": 7,
+                "completion_tokens_details": {"reasoning_tokens": 3},
+            },
             "system_fingerprint": "fp_abc123",
         }
     )
@@ -56,6 +62,7 @@ async def test_happy_path_returns_parsed_response() -> None:
     assert r.output_tokens == 2
     assert r.finish_reason == "stop"
     assert r.system_fingerprint == "fp_abc123"
+    assert r.reasoning_tokens == 3
     assert r.error is None
     assert r.response_ms is not None and r.response_ms >= 0
     assert r.ttft_ms is None  # Phase 1: no streaming
@@ -184,3 +191,94 @@ def test_completions_path_resolution() -> None:
         path_for("https://gw.example.com/v1/chat/completions")
         == "https://gw.example.com/v1/chat/completions"
     )
+
+
+def test_request_overrides_merge_nested_fields() -> None:
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://fake.example.com/v1",
+            api_key="sk-test-placeholder",
+            model="test-model",
+            request_overrides={
+                "reasoning_effort": "minimal",
+                "thinking_config": {"thinking_budget": 0},
+            },
+        )
+    )
+    payload = client._build_payload(_make_probe())
+    assert payload["reasoning_effort"] == "minimal"
+    assert payload["thinking_config"] == {"thinking_budget": 0}
+    assert payload["model"] == "test-model"
+
+
+def test_request_overrides_can_switch_to_max_completion_tokens() -> None:
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://fake.example.com/v1",
+            api_key="sk-test-placeholder",
+            model="test-model",
+            request_overrides={"max_completion_tokens": 2048},
+        )
+    )
+    payload = client._build_payload(_make_probe())
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 2048
+
+
+def test_request_omit_fields_remove_configured_defaults() -> None:
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://fake.example.com/v1",
+            api_key="sk-test-placeholder",
+            model="test-model",
+            request_omit_fields=["temperature", "seed"],
+        )
+    )
+    probe = Probe(
+        probe_id="t-omit",
+        category="identification",
+        messages=[ChatMessage(role="user", content="Hello?")],
+        params=SampleParams(temperature=0.0, max_tokens=50, seed=1234),
+        num_samples=1,
+    )
+    payload = client._build_payload(probe)
+    assert "temperature" not in payload
+    assert "seed" not in payload
+    assert payload["top_p"] == 1.0
+    assert payload["max_tokens"] == 50
+
+
+@pytest.mark.parametrize(
+    ("override_key", "override_value"),
+    [
+        ("model", "other-model"),
+        ("temperature", 0.7),
+        ("top_p", 0.5),
+        ("max_tokens", 10),
+        ("seed", 1234),
+    ],
+)
+def test_request_overrides_cannot_override_protected_fields(
+    override_key: str, override_value: object
+) -> None:
+    with pytest.raises(ValueError, match="protected payload field"):
+        OpenAICompatClient(
+            ClientConfig(
+                endpoint_url="https://fake.example.com/v1",
+                api_key="sk-test-placeholder",
+                model="test-model",
+                request_overrides={override_key: override_value},
+            )
+        )
+
+
+def test_request_omit_fields_reject_unsupported_field() -> None:
+    with pytest.raises(ValueError, match="unsupported field 'messages'"):
+        OpenAICompatClient(
+            ClientConfig(
+                endpoint_url="https://fake.example.com/v1",
+                api_key="sk-test-placeholder",
+                model="test-model",
+                request_omit_fields=["messages"],
+            )
+        )

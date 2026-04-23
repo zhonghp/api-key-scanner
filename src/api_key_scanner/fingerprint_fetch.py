@@ -38,6 +38,9 @@ from typing import Any, Literal
 import httpx
 from platformdirs import user_cache_dir
 
+from api_key_scanner import probes as probes_mod
+from api_key_scanner.schemas import Manifest
+
 logger = logging.getLogger(__name__)
 
 
@@ -353,39 +356,56 @@ async def _download_and_verify(
 
         # 2. parse manifest
         try:
-            manifest = json.loads(manifest_bytes)
-        except json.JSONDecodeError as exc:
+            manifest = Manifest.model_validate_json(manifest_bytes)
+        except Exception as exc:
             raise FingerprintFetchError(
-                "schema", f"MANIFEST.json is not valid JSON: {exc}"
+                "schema", f"MANIFEST.json failed schema validation: {exc}"
             ) from exc
-        models = manifest.get("models")
-        if not isinstance(models, dict):
-            raise FingerprintFetchError("schema", "MANIFEST.json missing 'models' object")
+        models = manifest.models
 
         # 2a. probe-set-version alignment: a v2 client cannot use v1 data
         # (probe IDs won't match what the detectors send at verify time).
-        if expected_probe_set_version is not None:
-            manifest_version = manifest.get("probe_set_version")
-            if manifest_version != expected_probe_set_version:
+        if (
+            expected_probe_set_version is not None
+            and manifest.probe_set_version != expected_probe_set_version
+        ):
+            raise FingerprintFetchError(
+                "schema",
+                (
+                    f"manifest probe_set_version={manifest.probe_set_version!r} but "
+                    f"client expects {expected_probe_set_version!r}; "
+                    "either upgrade/downgrade the client (via pip install "
+                    "api-key-scanner-mcp@<matching-version>) or override "
+                    "locally with APIGUARD_PROBE_SET_VERSION"
+                ),
+            )
+
+        try:
+            expected_snapshot = probes_mod.bundled_probes_snapshot(manifest.probe_set_version)
+        except ValueError as exc:
+            raise FingerprintFetchError("schema", str(exc)) from exc
+        if manifest.probes_snapshot != expected_snapshot:
+            raise FingerprintFetchError(
+                "schema",
+                "manifest probes_snapshot does not match bundled probe files for "
+                f"{manifest.probe_set_version}",
+            )
+
+        basenames: dict[str, str] = {}
+        for canonical_id, entry in models.items():
+            basename = Path(entry.file).name
+            owner = basenames.get(basename)
+            if owner and owner != canonical_id:
                 raise FingerprintFetchError(
                     "schema",
-                    (
-                        f"manifest probe_set_version={manifest_version!r} but "
-                        f"client expects {expected_probe_set_version!r}; "
-                        "either upgrade/downgrade the client (via pip install "
-                        "api-key-scanner-mcp@<matching-version>) or override "
-                        "locally with APIGUARD_PROBE_SET_VERSION"
-                    ),
+                    f"manifest basename collision: {basename} used by {owner} and {canonical_id}",
                 )
+            basenames[basename] = canonical_id
 
         # 3. each referenced .jsonl
-        for canonical_id, entry in models.items():
-            rel = entry.get("file")
-            expected_sha = entry.get("sha256")
-            if not isinstance(rel, str) or not isinstance(expected_sha, str):
-                raise FingerprintFetchError(
-                    "schema", f"manifest entry {canonical_id} missing file/sha256"
-                )
+        for _canonical_id, entry in models.items():
+            rel = entry.file
+            expected_sha = entry.sha256
             # Assets are flat at top level: filename is basename of 'file'
             asset_name = Path(rel).name
             if asset_name not in asset_urls:

@@ -13,6 +13,7 @@ verify_gateway returns an inconclusive Verdict with a clear instruction.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from importlib import resources
@@ -80,6 +81,14 @@ def load_probes(budget: Budget = "cheap") -> list[Probe]:
     up their bill during verification.
     """
     version = current_probe_set_version()
+    return load_probes_for_version(budget, probe_set_version=version)
+
+
+def load_probes_for_version(
+    budget: Budget = "cheap", *, probe_set_version: str | None = None
+) -> list[Probe]:
+    """Load the bundled probe set for an explicit probe-set version."""
+    version = probe_set_version or current_probe_set_version()
     cfg = _BUDGET_CONFIG[budget]
     files = _BUNDLED_FILES[version]
 
@@ -92,6 +101,30 @@ def load_probes(budget: Budget = "cheap") -> list[Probe]:
                 probe.num_samples = sample_cap
         probes.extend(loaded)
     return probes
+
+
+def expected_probe_sample_counts(
+    budget: Budget = "cheap", *, probe_set_version: str | None = None
+) -> dict[str, int]:
+    """Return expected successful sample count per probe id for this budget."""
+    return {
+        probe.probe_id: probe.num_samples
+        for probe in load_probes_for_version(budget, probe_set_version=probe_set_version)
+    }
+
+
+def bundled_probes_snapshot(probe_set_version: str | None = None) -> dict[str, str]:
+    """Return sha256 hashes of the bundled probe JSONL files for one version."""
+    version = probe_set_version or current_probe_set_version()
+    if version not in _BUNDLED_FILES:
+        raise ValueError(f"unknown probe set version: {version}; valid: {sorted(_BUNDLED_FILES)}")
+
+    snapshot: dict[str, str] = {}
+    for filename in _BUNDLED_FILES[version].values():
+        traversable = resources.files("api_key_scanner.data").joinpath("probes").joinpath(filename)
+        with traversable.open("rb") as f:
+            snapshot[filename] = hashlib.sha256(f.read()).hexdigest()
+    return snapshot
 
 
 def _load_bundled_jsonl(filename: str, *, cap: int | None = None) -> list[Probe]:

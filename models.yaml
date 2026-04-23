@@ -9,8 +9,7 @@
 # owner — proxies requests to the right upstream vendor based on the
 # `model` field we send. Note that reference fingerprints collected
 # this way carry whatever substitution the gateway might be doing;
-# see `release_allowed: false` tracking in PR #3 for the plan to mark
-# non-vendor-direct references as ineligible for public release.
+# see PR #3 for the plan to track non-vendor-direct references separately.
 #
 # Field semantics:
 # - canonical_id: must be in aliases.json's canonical[] list; the file
@@ -57,15 +56,21 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: o3
     key_env: OPENAI_API_KEY
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
     # disabled: reasoning model — default thinking exhausts max_tokens (2/18 samples) — #4
-    enabled: false
+    enabled: true
 
   - canonical_id: openai/o4-mini
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: o4-mini
     key_env: OPENAI_API_KEY
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
     # disabled: reasoning model — default thinking exhausts max_tokens (2/18 samples) — #4
-    enabled: false
+    enabled: true
 
   - canonical_id: openai/gpt-4o
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -77,7 +82,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-4o-mini
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
+    enabled: false
 
   - canonical_id: openai/gpt-4-turbo
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -89,65 +95,117 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5
     key_env: OPENAI_API_KEY
-    # disabled: reasoning model (default medium effort) — 1/18 samples — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
+    enabled: true
 
   - canonical_id: openai/gpt-5-mini
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5-mini
     key_env: OPENAI_API_KEY
-    # disabled: reasoning model — 1/18 samples — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
+    enabled: true
 
   - canonical_id: openai/gpt-5-nano
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5-nano
     key_env: OPENAI_API_KEY
-    # disabled: reasoning model — 0/18 samples — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
+    enabled: true
 
   - canonical_id: openai/gpt-5.1
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.1
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
     enabled: true
 
   - canonical_id: openai/gpt-5.1-codex-max
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.1-codex-max
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - temperature
+      - top_p
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
     enabled: true
 
   - canonical_id: openai/gpt-5.1-chat-latest
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.1-chat-latest
     key_env: OPENAI_API_KEY
-    # disabled: 1/18 transient empty on MET — confirm stability before re-enable — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: medium
+      max_completion_tokens: 2048
+    enabled: true
 
   - canonical_id: openai/gpt-5.2
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.2
     key_env: OPENAI_API_KEY
-    # disabled: reasoning model (default thinking on) — 13/18 samples — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    # disabled on Boyue: Azure-style prompt filter blocks llmmap-v2-01, so cheap v2 small sample is 1/2
+    enabled: true
 
   - canonical_id: openai/gpt-5.2-codex
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.2-codex
     key_env: OPENAI_API_KEY
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    request_omit_fields:
+      - temperature
+      - top_p
+    # disabled on Boyue: parameter issue is fixed, but prompt filter still blocks llmmap-v2-01
     enabled: true
 
   - canonical_id: openai/gpt-5.3-codex
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.3-codex
     key_env: OPENAI_API_KEY
-    # disabled: reasoning model — 0/18 samples — #4
-    enabled: false
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    enabled: true
 
   - canonical_id: openai/gpt-5.4
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gpt-5.4
+    key_env: OPENAI_API_KEY
+    enabled: true
+
+  - canonical_id: openai/gpt-5.4-mini
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.4-mini
+    key_env: OPENAI_API_KEY
+    request_overrides:
+      reasoning_effort: low
+      max_completion_tokens: 2048
+    request_omit_fields:
+      - temperature
+    enabled: true
+
+  - canonical_id: openai/gpt-5.5
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: gpt-5.5
     key_env: OPENAI_API_KEY
     enabled: true
 
@@ -156,74 +214,107 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-3.5-haiku
     key_env: OPENAI_API_KEY
-    # disabled: gateway systematic HTTP 502 on met-v2-001 (3/18 samples) — #4
-    enabled: false
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
+    enabled: true
 
   - canonical_id: anthropic/claude-4.5-haiku
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-4.5-haiku
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: true
 
   - canonical_id: anthropic/claude-3.7-sonnet
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-3.7-sonnet
     key_env: OPENAI_API_KEY
-    # disabled: gateway systematic HTTP 503 on all probes (0/18 samples) — #4
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: false
 
   - canonical_id: anthropic/claude-4.0-sonnet
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-4.0-sonnet
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: true
 
   - canonical_id: anthropic/claude-4.5-sonnet
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-4.5-sonnet
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: true
 
   - canonical_id: anthropic/claude-sonnet-4-6
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-sonnet-4-6
     key_env: OPENAI_API_KEY
-    # disabled: implicit thinking mode causes scattered MET empties (16/18 samples) — #4
-    enabled: false
+    request_omit_fields:
+      - top_p
+    enabled: true
 
   - canonical_id: anthropic/claude-opus-4
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: true
 
   - canonical_id: anthropic/claude-opus-4-1
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4-1
     key_env: OPENAI_API_KEY
-    # disabled: gateway systematic HTTP 502 on met-v2-001 (3/18 samples) — #4
-    enabled: false
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
+    enabled: true
 
   - canonical_id: anthropic/claude-opus-4-5
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4-5
     key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - top_p
+    # disabled on Boyue: model_not_found / no available channel
     enabled: true
 
   - canonical_id: anthropic/claude-opus-4-6
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: claude-opus-4-6
     key_env: OPENAI_API_KEY
-    # disabled: implicit thinking + read timeouts on MET (13/18 samples) — #4
-    enabled: false
+    request_omit_fields:
+      - top_p
+    enabled: true
+
+  - canonical_id: anthropic/claude-opus-4-7
+    endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
+    model_id: claude-opus-4-7
+    key_env: OPENAI_API_KEY
+    request_omit_fields:
+      - temperature
+      - top_p
+    request_overrides:
+      max_completion_tokens: 2048
+    enabled: true
 
   # ---- Google family --------------------------------------------------------
   - canonical_id: google/gemini-3-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-pro-preview
     key_env: OPENAI_API_KEY
-    # disabled: implicit thinking (Gemini Pro default) — 14/18 samples (MET timeouts) — #4
-    enabled: false
+    enabled: true
 
   - canonical_id: google/gemini-3.1-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -235,8 +326,9 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-pro
     key_env: OPENAI_API_KEY
-    # disabled: implicit thinking (Gemini 2.5 Pro default) — 15/18 samples (MET empties) — #4
-    enabled: false
+    request_overrides:
+      max_completion_tokens: 3072
+    enabled: true
 
   - canonical_id: google/gemini-3-flash-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
@@ -254,7 +346,8 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.0-flash
     key_env: OPENAI_API_KEY
-    enabled: true
+    # disabled on Boyue: "Multi-modal output is not supported" for text probes
+    enabled: false
 
   - canonical_id: google/gemini-2.5-flash-lite
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai

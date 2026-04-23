@@ -9,6 +9,8 @@ dist/
 *.egg-info/
 *.egg
 .pytest_cache/
+.tmp-*/
+pytest-cache-files-*/
 .ruff_cache/
 .mypy_cache/
 .coverage

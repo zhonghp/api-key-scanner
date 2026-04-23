@@ -20,11 +20,17 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 
 from api_key_scanner import __version__ as _PKG_VERSION  # noqa: N812
-from api_key_scanner.schemas import Probe, ProbeResponse
+from api_key_scanner.schemas import (
+    Probe,
+    ProbeResponse,
+    validate_request_omit_fields,
+    validate_request_overrides_dict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +65,8 @@ class ClientConfig:
     max_retries: int = _DEFAULT_MAX_RETRIES
     timeout: httpx.Timeout = field(default_factory=_default_timeout)
     extra_headers: dict[str, str] | None = None
+    request_overrides: dict[str, Any] | None = None
+    request_omit_fields: list[str] | None = None
 
 
 class OpenAICompatClient:
@@ -66,6 +74,10 @@ class OpenAICompatClient:
 
     def __init__(self, config: ClientConfig):
         self._config = config
+        if config.request_overrides:
+            validate_request_overrides_dict(config.request_overrides)
+        if config.request_omit_fields:
+            validate_request_omit_fields(config.request_omit_fields)
         self._semaphore = asyncio.Semaphore(config.concurrency)
         # Normalize endpoint to have no trailing slash; we'll append /chat/completions
         self._base = config.endpoint_url.rstrip("/")
@@ -106,17 +118,31 @@ class OpenAICompatClient:
             text = text.replace(key, "<REDACTED>")
         return text
 
-    def _build_payload(self, probe: Probe) -> dict:
-        payload: dict = {
+    def _build_payload(self, probe: Probe) -> dict[str, Any]:
+        payload: dict[str, Any] = {
             "model": self._config.model,
             "messages": [m.model_dump() for m in probe.messages],
-            "temperature": probe.params.temperature,
-            "top_p": probe.params.top_p,
-            "max_tokens": probe.params.max_tokens,
             "stream": False,
         }
-        if probe.params.seed is not None:
+        omit_fields = set(self._config.request_omit_fields or [])
+        if "temperature" not in omit_fields:
+            payload["temperature"] = probe.params.temperature
+        if "top_p" not in omit_fields:
+            payload["top_p"] = probe.params.top_p
+        # Some reasoning models reject `max_tokens` and require
+        # `max_completion_tokens` instead. When the caller explicitly opts
+        # into that parameter via request_overrides, omit the legacy field.
+        if (
+            self._config.request_overrides
+            and "max_completion_tokens" in self._config.request_overrides
+        ):
+            omit_fields.add("max_tokens")
+        if "max_tokens" not in omit_fields:
+            payload["max_tokens"] = probe.params.max_tokens
+        if probe.params.seed is not None and "seed" not in omit_fields:
             payload["seed"] = probe.params.seed
+        if self._config.request_overrides:
+            payload = _merge_request_overrides(payload, self._config.request_overrides)
         return payload
 
     async def run_probes(
@@ -260,6 +286,7 @@ class OpenAICompatClient:
         content = message.get("content") or ""
         finish_reason = choices[0].get("finish_reason")
         usage = body.get("usage") or {}
+        completion_details = usage.get("completion_tokens_details") or {}
 
         return ProbeResponse(
             probe_id=probe.probe_id,
@@ -270,6 +297,7 @@ class OpenAICompatClient:
             ttft_ms=None,  # Phase 1: no streaming
             system_fingerprint=body.get("system_fingerprint"),
             finish_reason=finish_reason,
+            reasoning_tokens=completion_details.get("reasoning_tokens"),
         )
 
 
@@ -277,3 +305,23 @@ def _truncate_body(text: str, limit: int = 200) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+def _merge_request_overrides(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_nested_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_nested_dict(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_nested_dict(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
