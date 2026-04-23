@@ -5,4 +5,4 @@ endpoint is actually serving the claimed model, using public signed
 fingerprint data. Your API key never leaves your machine.
 """
 
-__version__ = "0.1.4"
+__version__ = "0.2.0"

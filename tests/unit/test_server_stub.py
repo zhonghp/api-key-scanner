@@ -50,10 +50,19 @@ async def test_missing_env_var_returns_inconclusive() -> None:
     assert "sk-" not in result["disclaimer"]  # sanity
 
 
-async def test_verdict_has_stable_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_verdict_has_stable_shape(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+) -> None:
     """Even on the no-fingerprints-configured path, the Verdict shape is stable."""
     monkeypatch.setenv("MY_TEST_KEY", "sk-placeholder-not-a-real-key")
-    # APIGUARD_FINGERPRINT_DIR intentionally unset -> inconclusive with guidance
+    # Force offline + empty cache so auto-fetch can't find data on dev boxes
+    # that have a real ``~/Library/Caches/api-key-scanner`` from manual runs.
+    # The test only cares about the no-fingerprints branch's verdict shape.
+    monkeypatch.setenv("APIGUARD_OFFLINE", "1")
+    monkeypatch.delenv("APIGUARD_FINGERPRINT_DIR", raising=False)
+    from api_key_scanner import fingerprint_fetch as _ff
+
+    monkeypatch.setattr(_ff, "user_cache_dir", lambda _app: str(tmp_path))
     result = await verify_gateway(
         endpoint_url="https://example.com/v1",
         claimed_model="claude-opus-4",

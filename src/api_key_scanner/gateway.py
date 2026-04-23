@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from api_key_scanner import __version__ as _PKG_VERSION  # noqa: N812
 from api_key_scanner.schemas import Probe, ProbeResponse
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class OpenAICompatClient:
             "Authorization": f"Bearer {self._config.api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
-            "User-Agent": "api-key-scanner-mcp/0.1.0",
+            "User-Agent": f"api-key-scanner-mcp/{_PKG_VERSION}",
         }
         if self._config.extra_headers:
             headers.update(self._config.extra_headers)

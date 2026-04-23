@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "LLM API authenticity verification tools",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "plugins": [
     {
       "name": "api-key-scanner",
       "description": "Verify whether an LLM API gateway is actually serving the claimed model. Local MCP server; your API key stays on your machine.",
       "source": "./",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }
