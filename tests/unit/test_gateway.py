@@ -42,7 +42,15 @@ def _make_client(max_retries: int = 0) -> OpenAICompatClient:
 async def test_happy_path_returns_parsed_response() -> None:
     respx.post("https://fake.example.com/v1/chat/completions").respond(
         json={
-            "choices": [{"message": {"content": "Hi!"}, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "message": {
+                        "content": "Hi!",
+                        "reasoning_content": "private visible chain",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {
                 "completion_tokens": 2,
                 "prompt_tokens": 5,
@@ -63,6 +71,7 @@ async def test_happy_path_returns_parsed_response() -> None:
     assert r.finish_reason == "stop"
     assert r.system_fingerprint == "fp_abc123"
     assert r.reasoning_tokens == 3
+    assert r.reasoning_content == "private visible chain"
     assert r.error is None
     assert r.response_ms is not None and r.response_ms >= 0
     assert r.ttft_ms is None  # Phase 1: no streaming

@@ -586,6 +586,81 @@ models:
     assert sidecar["expected_samples"] == 18
     assert sidecar["incomplete_probe_ids"] == []
     assert sidecar["missing_probe_ids"] == ["llmmap-v2-03"]
+    rejected = [
+        json.loads(line)
+        for line in jsonl.with_suffix(".rejected.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(rejected) == 1
+    assert rejected[0]["probe_id"] == "llmmap-v2-03"
+    assert rejected[0]["quality_attempt"] == "resume"
+    assert rejected[0]["rejected_reason"] == "finish_reason=length"
+    assert rejected[0]["output"] == "As a large language model, I was trained"
+
+
+def test_collect_all_keeps_short_creator_probe_with_high_reasoning(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: google/gemini-2.5-pro
+    endpoint: https://example.com/v1
+    model_id: gemini-2.5-pro
+    key_env: COLLECT_ALL_RESUME_TEST_KEY_SHOULD_NOT_EXIST
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    jsonl = out_dir / "google" / "gemini-2.5-pro.jsonl"
+    jsonl.parent.mkdir(parents=True)
+    with jsonl.open("w", encoding="utf-8") as f:
+        for probe in probes_mod.load_probes("cheap"):
+            for sample_index in range(probe.num_samples):
+                is_creator_probe = probe.probe_id == "llmmap-v2-01"
+                f.write(
+                    json.dumps(
+                        {
+                            "probe_id": probe.probe_id,
+                            "sample_index": sample_index,
+                            "output": (
+                                "I was created by Google."
+                                if is_creator_probe
+                                else f"existing {probe.probe_id} #{sample_index}"
+                            ),
+                            "output_tokens": 320 if is_creator_probe else 5,
+                            "response_ms": 100,
+                            "ttft_ms": None,
+                            "system_fingerprint": None,
+                            "finish_reason": "stop",
+                            "reasoning_tokens": 314 if is_creator_probe else None,
+                            "collected_at": "2026-04-25T00:00:00+00:00",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(out_dir),
+        "--env-file",
+        "/dev/null",
+        "--require-complete",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "fingerprint already complete" in result.stderr
+    sidecar = json.loads(jsonl.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert sidecar["actual_samples"] == 18
+    assert sidecar["missing_probe_ids"] == []
+    assert sidecar["incomplete_probe_ids"] == []
+    assert not jsonl.with_suffix(".rejected.jsonl").exists()
 
 
 def test_models_yaml_is_valid(tmp_path: Path) -> None:

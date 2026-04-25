@@ -314,12 +314,21 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-pro-preview
     key_env: OPENAI_API_KEY
+    request_overrides:
+      extra_body:
+        google:
+          thinking_config:
+            thinking_budget: 0
     enabled: true
 
   - canonical_id: google/gemini-3.1-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3.1-pro-preview
     key_env: OPENAI_API_KEY
+    request_overrides:
+      max_completion_tokens: 3072
+    # Some OpenAI-compatible Gemini gateways do not honor thinking_budget=0 for
+    # this model; a larger budget prevents reasoning tokens from truncating output.
     enabled: true
 
   - canonical_id: google/gemini-2.5-pro
@@ -328,18 +337,30 @@ models:
     key_env: OPENAI_API_KEY
     request_overrides:
       max_completion_tokens: 3072
+    # Some OpenAI-compatible Gemini gateways still report reasoning_tokens with
+    # thinking_budget=0; keep a larger budget to preserve visible output.
     enabled: true
 
   - canonical_id: google/gemini-3-flash-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-flash-preview
     key_env: OPENAI_API_KEY
+    request_overrides:
+      extra_body:
+        google:
+          thinking_config:
+            thinking_budget: 0
     enabled: true
 
   - canonical_id: google/gemini-2.5-flash
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-flash
     key_env: OPENAI_API_KEY
+    request_overrides:
+      extra_body:
+        google:
+          thinking_config:
+            thinking_budget: 0
     enabled: true
 
   - canonical_id: google/gemini-2.0-flash
@@ -353,4 +374,9 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-flash-lite
     key_env: OPENAI_API_KEY
+    request_overrides:
+      extra_body:
+        google:
+          thinking_config:
+            thinking_budget: 0
     enabled: true

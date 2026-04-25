@@ -90,6 +90,8 @@ def _build_manifest(fp_dir: Path, version: str, probe_set_version: str | None) -
         if not vendor_dir.is_dir() or vendor_dir.name.startswith("."):
             continue
         for jsonl in sorted(vendor_dir.glob("*.jsonl")):
+            if jsonl.name.endswith(".rejected.jsonl"):
+                continue
             canonical_id = f"{vendor_dir.name}/{jsonl.stem}"
             try:
                 resolved = aliases.to_canonical(canonical_id)

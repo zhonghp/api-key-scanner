@@ -64,6 +64,7 @@ class ProbeResponse(BaseModel):
     system_fingerprint: str | None = None
     finish_reason: str | None = None
     reasoning_tokens: int | None = None
+    reasoning_content: str | None = None
     error: str | None = None  # populated when this sample failed
 
 
@@ -79,6 +80,7 @@ class FingerprintEntry(BaseModel):
     system_fingerprint: str | None = None
     finish_reason: str | None = None
     reasoning_tokens: int | None = None
+    reasoning_content: str | None = None
     collected_at: str  # ISO 8601
 
 

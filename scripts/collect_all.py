@@ -47,6 +47,7 @@ from api_key_scanner.schemas import (
 _DEFAULT_QUALITY_RETRIES = 2
 _DEFAULT_MIN_OUTPUT_CHARS_FOR_HIGH_REASONING = 120
 _DEFAULT_HIGH_REASONING_TOKENS = 128
+_SHORT_HIGH_REASONING_EXEMPT_PROBE_IDS = frozenset({"llmmap-v2-01"})
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,7 @@ class _ResumeSnapshot:
     ignored_entries: int
     duplicate_entries: int
     quality_rejected_entries: int
+    rejected_log_entries: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -185,6 +187,10 @@ def _meta_path_for(jsonl_path: Path) -> Path:
     return jsonl_path.with_suffix(".meta.json")
 
 
+def _rejected_path_for(jsonl_path: Path) -> Path:
+    return jsonl_path.with_suffix(".rejected.jsonl")
+
+
 def _fingerprint_path_for(out_dir: Path, canonical_id: str) -> Path:
     vendor, model_name = canonical_id.split("/", 1)
     return out_dir / vendor / f"{model_name}.jsonl"
@@ -213,6 +219,7 @@ def _load_resume_snapshot(
             ignored_entries=0,
             duplicate_entries=0,
             quality_rejected_entries=0,
+            rejected_log_entries=[],
         )
 
     expected_keys = _expected_sample_keys(probes)
@@ -220,6 +227,7 @@ def _load_resume_snapshot(
     ignored_entries = 0
     duplicate_entries = 0
     quality_rejected_entries = 0
+    rejected_log_entries: list[dict[str, Any]] = []
 
     with out_file.open("r", encoding="utf-8") as f:
         for line in f:
@@ -236,8 +244,16 @@ def _load_resume_snapshot(
             if key not in expected_keys or not entry.output:
                 ignored_entries += 1
                 continue
-            if _entry_quality_failure_reason(entry, quality_policy):
+            quality_reason = _entry_quality_failure_reason(entry, quality_policy)
+            if quality_reason:
                 quality_rejected_entries += 1
+                rejected_log_entries.append(
+                    _build_rejected_entry_from_existing(
+                        entry,
+                        rejected_reason=quality_reason,
+                        collected_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                )
                 continue
             if key in entries_by_key:
                 duplicate_entries += 1
@@ -249,6 +265,7 @@ def _load_resume_snapshot(
         ignored_entries=ignored_entries,
         duplicate_entries=duplicate_entries,
         quality_rejected_entries=quality_rejected_entries,
+        rejected_log_entries=rejected_log_entries,
     )
 
 
@@ -287,6 +304,7 @@ def _as_optional_int(value: object) -> int | None:
 
 def _quality_failure_reason(
     *,
+    probe_id: str | None = None,
     output: str,
     finish_reason: str | None,
     reasoning_tokens: object,
@@ -306,6 +324,7 @@ def _quality_failure_reason(
         reasoning is not None
         and reasoning >= policy.high_reasoning_tokens
         and output_chars < policy.min_output_chars_for_high_reasoning
+        and probe_id not in _SHORT_HIGH_REASONING_EXEMPT_PROBE_IDS
     ):
         return f"short output ({output_chars} chars) with high reasoning_tokens={reasoning}"
 
@@ -314,6 +333,7 @@ def _quality_failure_reason(
 
 def _entry_quality_failure_reason(entry: FingerprintEntry, policy: _QualityPolicy) -> str | None:
     return _quality_failure_reason(
+        probe_id=entry.probe_id,
         output=entry.output,
         finish_reason=entry.finish_reason,
         reasoning_tokens=entry.reasoning_tokens,
@@ -325,11 +345,67 @@ def _response_failure_reason(response: ProbeResponse, policy: _QualityPolicy) ->
     if response.error:
         return response.error
     return _quality_failure_reason(
+        probe_id=response.probe_id,
         output=response.output,
         finish_reason=response.finish_reason,
         reasoning_tokens=response.reasoning_tokens,
         policy=policy,
     )
+
+
+def _build_rejected_entry_from_response(
+    response: ProbeResponse, *, quality_attempt: int, rejected_reason: str, collected_at: str
+) -> dict[str, Any]:
+    return {
+        "probe_id": response.probe_id,
+        "sample_index": response.sample_index,
+        "quality_attempt": quality_attempt,
+        "rejected_reason": rejected_reason,
+        "output": response.output,
+        "output_tokens": response.output_tokens,
+        "response_ms": response.response_ms,
+        "ttft_ms": response.ttft_ms,
+        "system_fingerprint": response.system_fingerprint,
+        "finish_reason": response.finish_reason,
+        "reasoning_tokens": response.reasoning_tokens,
+        "reasoning_content": response.reasoning_content,
+        "error": response.error,
+        "collected_at": collected_at,
+    }
+
+
+def _build_rejected_entry_from_existing(
+    entry: FingerprintEntry, *, rejected_reason: str, collected_at: str
+) -> dict[str, Any]:
+    return {
+        "probe_id": entry.probe_id,
+        "sample_index": entry.sample_index,
+        "quality_attempt": "resume",
+        "rejected_reason": rejected_reason,
+        "output": entry.output,
+        "output_tokens": entry.output_tokens,
+        "response_ms": entry.response_ms,
+        "ttft_ms": entry.ttft_ms,
+        "system_fingerprint": entry.system_fingerprint,
+        "finish_reason": entry.finish_reason,
+        "reasoning_tokens": entry.reasoning_tokens,
+        "reasoning_content": entry.reasoning_content,
+        "error": None,
+        "collected_at": collected_at,
+    }
+
+
+def _write_rejected_entries(out_file: Path, rejected_entries: list[dict[str, Any]]) -> None:
+    rejected_file = _rejected_path_for(out_file)
+    if not rejected_entries:
+        if rejected_file.exists():
+            rejected_file.unlink()
+        return
+
+    rejected_file.parent.mkdir(parents=True, exist_ok=True)
+    with rejected_file.open("w", encoding="utf-8") as f:
+        for entry in rejected_entries:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _build_success_entry(response: ProbeResponse, *, collected_at: str) -> dict[str, Any]:
@@ -343,6 +419,7 @@ def _build_success_entry(response: ProbeResponse, *, collected_at: str) -> dict[
         "system_fingerprint": response.system_fingerprint,
         "finish_reason": response.finish_reason,
         "reasoning_tokens": response.reasoning_tokens,
+        "reasoning_content": response.reasoning_content,
         "collected_at": collected_at,
     }
 
@@ -353,7 +430,7 @@ async def _collect_probe_samples_with_quality_retries(
     quality_policy: _QualityPolicy,
     *,
     canonical_id: str,
-) -> tuple[list[dict[str, Any]], list[_SampleFailure]]:
+) -> tuple[list[dict[str, Any]], list[_SampleFailure], list[dict[str, Any]]]:
     sample_by_key = {
         (probe.probe_id, sample_index): (probe, sample_index)
         for probe, sample_index in probe_samples
@@ -362,6 +439,7 @@ async def _collect_probe_samples_with_quality_retries(
     successful_entries: list[dict[str, Any]] = []
     collected_at = datetime.now(timezone.utc).isoformat()
     final_failures: list[_SampleFailure] = []
+    rejected_entries: list[dict[str, Any]] = []
 
     for quality_attempt in range(quality_policy.retries + 1):
         responses = await client.run_probe_samples(pending)
@@ -381,11 +459,19 @@ async def _collect_probe_samples_with_quality_retries(
                 reason=failure_reason,
             )
             final_failures.append(failure)
+            rejected_entries.append(
+                _build_rejected_entry_from_response(
+                    response,
+                    quality_attempt=quality_attempt,
+                    rejected_reason=failure_reason,
+                    collected_at=collected_at,
+                )
+            )
             if quality_attempt < quality_policy.retries and key in sample_by_key:
                 retry_pending.append(sample_by_key[key])
 
         if not retry_pending:
-            return successful_entries, final_failures
+            return successful_entries, final_failures, rejected_entries
 
         print(
             f"[collect]   {canonical_id}: retrying {len(retry_pending)} "
@@ -395,7 +481,7 @@ async def _collect_probe_samples_with_quality_retries(
         )
         pending = retry_pending
 
-    return successful_entries, final_failures
+    return successful_entries, final_failures, rejected_entries
 
 
 def _analyze_entries(
@@ -468,6 +554,7 @@ async def _collect_one(
             ignored_entries=0,
             duplicate_entries=0,
             quality_rejected_entries=0,
+            rejected_log_entries=[],
         )
     )
     missing_probe_samples = _missing_probe_samples(probes, snapshot.entries_by_key)
@@ -494,6 +581,7 @@ async def _collect_one(
 
     successful_entries: list[dict[str, Any]] = []
     sample_failures: list[_SampleFailure] = []
+    rejected_entries: list[dict[str, Any]] = list(snapshot.rejected_log_entries)
     skipped_for_missing_key = False
     if missing_probe_samples:
         key = os.environ.get(target.key_env)
@@ -516,12 +604,17 @@ async def _collect_one(
                     request_omit_fields=target.request_omit_fields,
                 )
             )
-            successful_entries, sample_failures = await _collect_probe_samples_with_quality_retries(
+            (
+                successful_entries,
+                sample_failures,
+                collected_rejected_entries,
+            ) = await _collect_probe_samples_with_quality_retries(
                 client,
                 missing_probe_samples,
                 quality_policy,
                 canonical_id=target.canonical_id,
             )
+            rejected_entries.extend(collected_rejected_entries)
     elif resume:
         print(
             f"[collect]   {target.canonical_id}: fingerprint already complete; no API calls needed",
@@ -563,6 +656,13 @@ async def _collect_one(
     with out_file.open("w", encoding="utf-8") as f:
         for entry in combined_entries:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    _write_rejected_entries(out_file, rejected_entries)
+    if rejected_entries:
+        print(
+            f"[collect]   {target.canonical_id}: wrote {len(rejected_entries)} "
+            f"rejected attempts to {_rejected_path_for(out_file)}",
+            file=sys.stderr,
+        )
 
     missing_probe_ids = sorted(
         probe_id for probe_id, actual in actual_per_probe.items() if actual == 0

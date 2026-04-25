@@ -221,6 +221,8 @@ class OpenAICompatClient:
                     # body should NOT propagate it via a ProbeResponse.
                     if parsed.output:
                         parsed.output = self._sanitize(parsed.output)
+                    if parsed.reasoning_content:
+                        parsed.reasoning_content = self._sanitize(parsed.reasoning_content)
                     if parsed.error:
                         parsed.error = self._sanitize(parsed.error)
                     return parsed
@@ -305,6 +307,7 @@ class OpenAICompatClient:
         finish_reason = choices[0].get("finish_reason")
         usage = body.get("usage") or {}
         completion_details = usage.get("completion_tokens_details") or {}
+        reasoning_content = _extract_reasoning_content(message, choices[0])
 
         return ProbeResponse(
             probe_id=probe.probe_id,
@@ -316,6 +319,7 @@ class OpenAICompatClient:
             system_fingerprint=body.get("system_fingerprint"),
             finish_reason=finish_reason,
             reasoning_tokens=completion_details.get("reasoning_tokens"),
+            reasoning_content=reasoning_content,
         )
 
 
@@ -323,6 +327,34 @@ def _truncate_body(text: str, limit: int = 200) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+def _stringify_reasoning_content(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return value
+    return str(value)
+
+
+def _extract_reasoning_content(*containers: dict[str, Any]) -> str | None:
+    # OpenAI-compatible gateways use different non-standard names for exposed
+    # reasoning text. Most only expose token counts; this keeps any visible
+    # content for debug/rejected-sample logs when a gateway does provide it.
+    field_names = (
+        "reasoning_content",
+        "reasoning",
+        "thinking_content",
+        "thinking",
+        "thought",
+        "thoughts",
+    )
+    for container in containers:
+        for field_name in field_names:
+            content = _stringify_reasoning_content(container.get(field_name))
+            if content:
+                return content
+    return None
 
 
 def _merge_request_overrides(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:

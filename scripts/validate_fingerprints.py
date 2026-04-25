@@ -60,6 +60,8 @@ def _validate_alignment(fp_dir: Path) -> list[str]:
         if not vendor_dir.is_dir() or vendor_dir.name.startswith("."):
             continue
         for jsonl in sorted(vendor_dir.glob("*.jsonl")):
+            if jsonl.name.endswith(".rejected.jsonl"):
+                continue
             canonical_id = f"{vendor_dir.name}/{jsonl.stem}"
             try:
                 resolved = aliases.to_canonical(canonical_id)
@@ -227,6 +229,8 @@ def _validate_manifest(
         if not vendor_dir.is_dir() or vendor_dir.name.startswith("."):
             continue
         for jsonl in sorted(vendor_dir.glob("*.jsonl")):
+            if jsonl.name.endswith(".rejected.jsonl"):
+                continue
             canonical_id = f"{vendor_dir.name}/{jsonl.stem}"
             if canonical_id not in manifest.models:
                 errs.append(f"{canonical_id}: file exists but missing from MANIFEST.json")
@@ -275,7 +279,9 @@ def main() -> int:
 
     schema_errs: list[str] = []
     file_stats: dict[str, _FileStats] = {}
-    jsonl_files = list(fp_dir.rglob("*.jsonl"))
+    jsonl_files = [
+        jsonl for jsonl in fp_dir.rglob("*.jsonl") if not jsonl.name.endswith(".rejected.jsonl")
+    ]
     for jsonl in jsonl_files:
         errs, stats = _validate_file_schema(jsonl)
         schema_errs.extend(errs)
