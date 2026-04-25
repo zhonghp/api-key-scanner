@@ -52,7 +52,7 @@ def render_markdown(v: Verdict) -> str:
                 f"- **{name}**{status_marker}: score `{d.score:.2f}` (weight `{d.weight}`)"
             )
             # Surface a single most informative detail, if any
-            for key in ("top_guess", "mean_p_value", "reason"):
+            for key in ("top_guess", "combined_p_value", "mean_p_value", "reason"):
                 if key in d.details:
                     lines.append(f"  - {key}: `{d.details[key]}`")
                     break

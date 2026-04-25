@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from api_key_scanner.detectors.met import run
+from api_key_scanner.detectors.met import (
+    _calibrated_similarity_score,
+    _fisher_combined_p_value,
+    run,
+)
 from api_key_scanner.schemas import FingerprintEntry, ProbeResponse
 
 
@@ -55,6 +59,9 @@ def test_identical_distributions_score_high() -> None:
 
     assert result.name == "d2_met"
     assert result.status != "failed"
+    assert "combined_p_value" in result.details
+    assert "mean_effect_size" in result.details
+    assert result.score == result.details["calibrated_similarity"]
     # Same distribution -> high p-value -> high score (>= 0.3 easily)
     assert result.score >= 0.3
 
@@ -112,6 +119,8 @@ def test_different_distributions_score_low() -> None:
 
     assert result.score < 0.3  # strongly rejected
     assert result.details["mean_p_value"] < 0.1
+    assert result.details["combined_p_value"] < 0.1
+    assert result.details["mean_effect_size"] > 0.0
 
 
 def test_insufficient_samples_fails() -> None:
@@ -128,8 +137,8 @@ def test_insufficient_samples_fails() -> None:
     assert result.status == "failed"
 
 
-def test_multiple_probes_average() -> None:
-    """Across multiple probes, p-values are averaged."""
+def test_multiple_probes_combines_p_values() -> None:
+    """Across multiple probes, p-values are retained and combined."""
     fingerprints = {
         "anthropic/claude-opus-4": [
             *_fp("anthropic/claude-opus-4", "p1", [f"probe 1 response {i}" for i in range(5)]),
@@ -151,3 +160,14 @@ def test_multiple_probes_average() -> None:
         num_permutations=200,
     )
     assert result.details["num_probes_tested"] == 2
+    assert 0.0 <= result.details["combined_p_value"] <= 1.0
+    assert result.details["legacy_mean_p_score"] >= result.score
+
+
+def test_fisher_combined_p_value_matches_single_probe() -> None:
+    assert _fisher_combined_p_value([0.25]) == 0.25
+
+
+def test_calibrated_score_avoids_mean_p_saturation() -> None:
+    score = _calibrated_similarity_score(combined_p_value=0.55, mean_effect_size=0.25)
+    assert 0.0 < score < 1.0
