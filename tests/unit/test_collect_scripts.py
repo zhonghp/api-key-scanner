@@ -456,6 +456,138 @@ models:
     assert "unsupported field 'messages'" in result.stderr
 
 
+def test_collect_all_resumes_complete_fingerprint_without_key(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://example.com/v1
+    model_id: gpt-4o
+    key_env: COLLECT_ALL_RESUME_TEST_KEY_SHOULD_NOT_EXIST
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    jsonl = out_dir / "openai" / "gpt-4o.jsonl"
+    jsonl.parent.mkdir(parents=True)
+    with jsonl.open("w", encoding="utf-8") as f:
+        for probe in probes_mod.load_probes("cheap"):
+            for sample_index in range(probe.num_samples):
+                f.write(
+                    json.dumps(
+                        {
+                            "probe_id": probe.probe_id,
+                            "sample_index": sample_index,
+                            "output": f"existing {probe.probe_id} #{sample_index}",
+                            "output_tokens": 5,
+                            "response_ms": 100,
+                            "ttft_ms": None,
+                            "system_fingerprint": None,
+                            "finish_reason": "stop",
+                            "reasoning_tokens": None,
+                            "collected_at": "2026-04-25T00:00:00+00:00",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(out_dir),
+        "--env-file",
+        "/dev/null",
+        "--require-complete",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "resume=on" in result.stderr
+    assert "fingerprint already complete" in result.stderr
+    assert "no API calls needed" in result.stderr
+    sidecar = json.loads(jsonl.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert sidecar["actual_samples"] == 18
+    assert sidecar["expected_samples"] == 18
+    assert sidecar["missing_probe_ids"] == []
+    assert sidecar["incomplete_probe_ids"] == []
+    assert "existing met-v2-001 #0" in jsonl.read_text(encoding="utf-8")
+
+
+def test_collect_all_rejects_low_quality_resume_sample_without_key(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://example.com/v1
+    model_id: gpt-4o
+    key_env: COLLECT_ALL_RESUME_TEST_KEY_SHOULD_NOT_EXIST
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    jsonl = out_dir / "openai" / "gpt-4o.jsonl"
+    jsonl.parent.mkdir(parents=True)
+    with jsonl.open("w", encoding="utf-8") as f:
+        for probe in probes_mod.load_probes("cheap"):
+            for sample_index in range(probe.num_samples):
+                is_bad = probe.probe_id == "llmmap-v2-03"
+                f.write(
+                    json.dumps(
+                        {
+                            "probe_id": probe.probe_id,
+                            "sample_index": sample_index,
+                            "output": (
+                                "As a large language model, I was trained"
+                                if is_bad
+                                else f"existing {probe.probe_id} #{sample_index}"
+                            ),
+                            "output_tokens": 252 if is_bad else 5,
+                            "response_ms": 100,
+                            "ttft_ms": None,
+                            "system_fingerprint": None,
+                            "finish_reason": "length" if is_bad else "stop",
+                            "reasoning_tokens": 243 if is_bad else None,
+                            "collected_at": "2026-04-25T00:00:00+00:00",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(out_dir),
+        "--env-file",
+        "/dev/null",
+        "--require-complete",
+    )
+
+    assert result.returncode == 1, result.stderr
+    assert "low-quality existing entries" in result.stderr
+    assert "still need collection" in result.stderr
+    assert "INCOMPLETE" in result.stderr
+    sidecar = json.loads(jsonl.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert sidecar["actual_samples"] == 17
+    assert sidecar["expected_samples"] == 18
+    assert sidecar["incomplete_probe_ids"] == []
+    assert sidecar["missing_probe_ids"] == ["llmmap-v2-03"]
+
+
 def test_models_yaml_is_valid(tmp_path: Path) -> None:
     """The shipped models.yaml must parse and reference only known canonical ids."""
     import yaml
@@ -500,6 +632,9 @@ def test_collect_all_help_does_not_expose_metadata_anomaly_flag() -> None:
     result = _run_script("collect_all.py", "--help")
     assert result.returncode == 0, result.stderr
     assert "--fail-on-metadata-anomaly" not in result.stdout
+    assert "--no-resume" in result.stdout
+    assert "--no-quality-filter" in result.stdout
+    assert "--quality-retries" in result.stdout
 
 
 # ---- generate_supported_models -------------------------------------------

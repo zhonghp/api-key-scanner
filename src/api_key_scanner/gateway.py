@@ -153,6 +153,23 @@ class OpenAICompatClient:
         Returns one ProbeResponse per (probe, sample_index) pair. Failed
         samples carry the error in .error and have empty output.
         """
+        probe_samples = [
+            (probe, sample_index) for probe in probes for sample_index in range(probe.num_samples)
+        ]
+        return await self.run_probe_samples(probe_samples, client=client)
+
+    async def run_probe_samples(
+        self,
+        probe_samples: list[tuple[Probe, int]],
+        *,
+        client: httpx.AsyncClient | None = None,
+    ) -> list[ProbeResponse]:
+        """Run explicit (probe, sample_index) pairs.
+
+        Batch collection uses this for resume: an existing fingerprint may
+        already contain sample indexes 0, 1, and 3, so the collector must be
+        able to request only sample index 2 without renumbering it.
+        """
         owns_client = client is None
         if client is None:
             verify = _should_verify_ssl()
@@ -165,9 +182,10 @@ class OpenAICompatClient:
 
         try:
             tasks: list[asyncio.Task[ProbeResponse]] = []
-            for probe in probes:
-                for i in range(probe.num_samples):
-                    tasks.append(asyncio.create_task(self._run_one(client, probe, sample_index=i)))
+            for probe, sample_index in probe_samples:
+                tasks.append(
+                    asyncio.create_task(self._run_one(client, probe, sample_index=sample_index))
+                )
             results = await asyncio.gather(*tasks)
             return list(results)
         finally:

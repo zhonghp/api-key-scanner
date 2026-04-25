@@ -84,6 +84,24 @@ async def test_num_samples_fans_out_requests() -> None:
 
 
 @respx.mock
+async def test_run_probe_samples_preserves_explicit_sample_indexes() -> None:
+    route = respx.post("https://fake.example.com/v1/chat/completions").respond(
+        json={
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+            "usage": {"completion_tokens": 1, "prompt_tokens": 1, "total_tokens": 2},
+        }
+    )
+    client = _make_client()
+    probe = _make_probe(num_samples=10)
+
+    results = await client.run_probe_samples([(probe, 2), (probe, 7)])
+
+    assert len(results) == 2
+    assert route.call_count == 2
+    assert {r.sample_index for r in results} == {2, 7}
+
+
+@respx.mock
 async def test_retries_on_429_then_succeeds() -> None:
     route = respx.post("https://fake.example.com/v1/chat/completions")
     route.side_effect = [
