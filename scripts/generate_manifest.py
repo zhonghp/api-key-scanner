@@ -133,6 +133,10 @@ def _build_manifest(fp_dir: Path, version: str, probe_set_version: str | None) -
             }
             if sidecar and sidecar.notes:
                 provenance["notes"] = sidecar.notes
+            if sidecar and sidecar.auto_detect_label:
+                provenance["auto_detect_label"] = sidecar.auto_detect_label
+            if sidecar and sidecar.resolved_request_url:
+                provenance["resolved_request_url"] = sidecar.resolved_request_url
 
             models[canonical_id] = {
                 "file": rel,

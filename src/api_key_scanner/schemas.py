@@ -21,6 +21,7 @@ PROTECTED_REQUEST_OVERRIDE_KEYS = frozenset(
     {"model", "messages", "stream", "temperature", "top_p", "max_tokens", "seed"}
 )
 OMITTABLE_REQUEST_PAYLOAD_FIELDS = frozenset({"temperature", "top_p", "max_tokens", "seed"})
+GEMINI_THINKING_CONFIG_KEYS = frozenset({"thinking_budget", "thinking_level", "include_thoughts"})
 ProbeCategory = Literal[
     "identification",
     "refusal",
@@ -137,10 +138,69 @@ class Verdict(BaseModel):
 
 
 def validate_request_overrides_dict(overrides: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(overrides, dict):
+        raise ValueError("request_overrides must be a mapping")
     for key in overrides:
         if key in PROTECTED_REQUEST_OVERRIDE_KEYS:
             raise ValueError(f"request_overrides cannot override protected payload field {key!r}")
+    _validate_gemini_extra_body(overrides)
     return overrides
+
+
+def _validate_gemini_extra_body(overrides: dict[str, Any]) -> None:
+    extra_body = overrides.get("extra_body")
+    if extra_body is None:
+        return
+    if not isinstance(extra_body, dict):
+        raise ValueError("request_overrides.extra_body must be a mapping")
+
+    google_body = extra_body.get("google")
+    if google_body is None:
+        return
+    if not isinstance(google_body, dict):
+        raise ValueError("request_overrides.extra_body.google must be a mapping")
+    if "thinkingConfig" in google_body:
+        raise ValueError(
+            "request_overrides.extra_body.google.thinkingConfig is not supported; "
+            "use extra_body.google.thinking_config"
+        )
+
+    thinking_config = google_body.get("thinking_config")
+    if thinking_config is None:
+        return
+    if not isinstance(thinking_config, dict):
+        raise ValueError("request_overrides.extra_body.google.thinking_config must be a mapping")
+
+    camel_case_suggestions = {
+        "thinkingBudget": "thinking_budget",
+        "thinkingLevel": "thinking_level",
+        "includeThoughts": "include_thoughts",
+    }
+    for key, suggestion in camel_case_suggestions.items():
+        if key in thinking_config:
+            raise ValueError(
+                "request_overrides.extra_body.google.thinking_config uses "
+                f"{key!r}; use {suggestion!r}"
+            )
+
+    for key, value in thinking_config.items():
+        if key not in GEMINI_THINKING_CONFIG_KEYS:
+            continue
+        if key == "thinking_budget" and (not isinstance(value, int) or isinstance(value, bool)):
+            raise ValueError(
+                "request_overrides.extra_body.google.thinking_config.thinking_budget "
+                "must be an integer"
+            )
+        if key == "thinking_level" and not isinstance(value, str):
+            raise ValueError(
+                "request_overrides.extra_body.google.thinking_config.thinking_level "
+                "must be a string"
+            )
+        if key == "include_thoughts" and not isinstance(value, bool):
+            raise ValueError(
+                "request_overrides.extra_body.google.thinking_config.include_thoughts "
+                "must be a boolean"
+            )
 
 
 def validate_request_omit_fields(fields: Any) -> list[str]:
@@ -190,6 +250,9 @@ class CollectedFingerprintSidecar(BaseModel):
     request_omit_fields: list[str] = Field(default_factory=list)
     api_format: ApiFormat = "openai"
     auth_scheme: AuthScheme = "default"
+    auto_detect_label: str | None = None
+    auto_detect_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    resolved_request_url: str | None = None
     verification_overrides_required: bool = False
     expected_num_probes: int
     expected_samples: int

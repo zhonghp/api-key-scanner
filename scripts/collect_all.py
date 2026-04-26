@@ -628,12 +628,18 @@ async def _collect_one(
     effective_request_omit_fields = target.request_omit_fields
     effective_api_format = target.api_format
     effective_auth_scheme = target.auth_scheme
+    effective_auto_detect_label: str | None = None
+    effective_auto_detect_attempts: list[dict[str, Any]] = []
+    effective_resolved_request_url: str | None = None
     existing_sidecar = _load_existing_sidecar(out_file) if resume else None
     if existing_sidecar is not None:
         effective_request_overrides = existing_sidecar.request_overrides
         effective_request_omit_fields = existing_sidecar.request_omit_fields
         effective_api_format = existing_sidecar.api_format
         effective_auth_scheme = existing_sidecar.auth_scheme
+        effective_auto_detect_label = existing_sidecar.auto_detect_label
+        effective_auto_detect_attempts = existing_sidecar.auto_detect_attempts
+        effective_resolved_request_url = existing_sidecar.resolved_request_url
     if missing_probe_samples:
         key = os.environ.get(target.key_env)
         if not key:
@@ -672,6 +678,9 @@ async def _collect_one(
                 effective_request_omit_fields = client.resolved_config.request_omit_fields or []
                 effective_api_format = client.resolved_config.api_format
                 effective_auth_scheme = client.resolved_config.auth_scheme
+            effective_auto_detect_label = client.auto_detect_label
+            effective_auto_detect_attempts = client.auto_detect_attempts
+            effective_resolved_request_url = client.resolved_request_path
             rejected_entries.extend(collected_rejected_entries)
     elif resume:
         print(
@@ -742,6 +751,9 @@ async def _collect_one(
             "request_omit_fields": effective_request_omit_fields,
             "api_format": effective_api_format,
             "auth_scheme": effective_auth_scheme,
+            "auto_detect_label": effective_auto_detect_label,
+            "auto_detect_attempts": effective_auto_detect_attempts,
+            "resolved_request_url": effective_resolved_request_url,
             "verification_overrides_required": bool(
                 effective_request_overrides
                 or effective_request_omit_fields

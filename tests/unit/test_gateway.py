@@ -498,6 +498,11 @@ async def test_auto_detects_best_openai_gemini_parameters_after_native_fails() -
     assert client.resolved_config.api_format == "openai"
     assert client.resolved_config.auth_scheme == "bearer"
     assert client.resolved_config.request_overrides == {"reasoning_effort": "none"}
+    assert client.auto_detect_label == "openai/gemini/reasoning-none"
+    assert any(
+        attempt["label"] == "openai/gemini/reasoning-none" and attempt["usable"]
+        for attempt in client.auto_detect_attempts
+    )
     assert openai_payloads[-1]["messages"][0]["content"] == "Hello?"
 
 
@@ -542,9 +547,16 @@ async def test_auto_detects_openai_gemini3_thinking_level_candidate() -> None:
     assert client.resolved_config.api_format == "openai"
     assert client.resolved_config.request_overrides == {
         "reasoning_effort": "none",
+        "max_completion_tokens": 3072,
         "extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}},
     }
+    assert client.auto_detect_label == "openai/gemini/google-thinking-level"
+    assert any(
+        attempt["label"] == "openai/gemini/google-thinking-level" and attempt["score"] == 0
+        for attempt in client.auto_detect_attempts
+    )
     assert openai_payloads[-1]["google"]["thinking_config"] == {"thinking_level": "low"}
+    assert openai_payloads[-1]["max_completion_tokens"] == 3072
 
 
 def test_openai_extra_body_is_expanded_into_raw_request_body() -> None:
@@ -564,7 +576,52 @@ def test_openai_extra_body_is_expanded_into_raw_request_body() -> None:
 
     assert payload["reasoning_effort"] == "none"
     assert payload["google"]["thinking_config"] == {"thinking_level": "low"}
+    assert payload["max_completion_tokens"] == 3072
     assert "extra_body" not in payload
+    assert "max_tokens" not in payload
+
+
+def test_openai_gemini_extra_body_rejects_native_camel_case() -> None:
+    with pytest.raises(ValueError, match="thinking_config"):
+        OpenAICompatClient(
+            ClientConfig(
+                endpoint_url="https://fake.example.com/v1",
+                api_key="sk-test-placeholder",
+                model="gemini-3-pro-preview",
+                request_overrides={
+                    "extra_body": {"google": {"thinkingConfig": {"thinkingLevel": "low"}}},
+                },
+            )
+        )
+
+    with pytest.raises(ValueError, match="thinking_budget"):
+        OpenAICompatClient(
+            ClientConfig(
+                endpoint_url="https://fake.example.com/v1",
+                api_key="sk-test-placeholder",
+                model="gemini-2.5-flash",
+                request_overrides={
+                    "extra_body": {"google": {"thinking_config": {"thinkingBudget": 0}}},
+                },
+            )
+        )
+
+
+def test_gemini3_pro_reasoning_none_adds_recommended_completion_budget() -> None:
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://fake.example.com/v1",
+            api_key="sk-test-placeholder",
+            model="gemini-3-pro-preview",
+            request_overrides={"reasoning_effort": "none"},
+        )
+    )
+
+    payload = client._build_payload(_make_probe())
+
+    assert payload["reasoning_effort"] == "none"
+    assert payload["max_completion_tokens"] == 3072
+    assert "max_tokens" not in payload
 
 
 def test_request_overrides_merge_nested_fields() -> None:

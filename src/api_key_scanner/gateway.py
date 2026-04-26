@@ -20,7 +20,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 from urllib.parse import quote, urlsplit
 
@@ -53,6 +53,14 @@ class _AutoDetectCandidate:
     auth_scheme: AuthScheme
     request_overrides: dict[str, Any]
     request_omit_fields: list[str]
+
+
+@dataclass(frozen=True)
+class _GeminiThinkingCapability:
+    thinking_mode: str
+    none_budget: int | None = None
+    none_level: str | None = None
+    recommended_max_completion_tokens: int | None = None
 
 
 def _default_timeout() -> httpx.Timeout:
@@ -94,8 +102,11 @@ class OpenAICompatClient:
     """Minimal async client for OpenAI-compatible, Anthropic, and Gemini gateways."""
 
     def __init__(self, config: ClientConfig):
+        config = _config_with_capability_defaults(config)
         self._config = config
         self._resolved_config: ClientConfig | None = None
+        self._auto_detect_label: str | None = None
+        self._auto_detect_attempts: list[dict[str, Any]] = []
         if config.api_format not in ("openai", "anthropic", "gemini", "auto"):
             raise ValueError("api_format must be one of: openai, anthropic, gemini, auto")
         if config.auth_scheme not in ("default", "bearer", "x-api-key", "x-goog-api-key"):
@@ -110,12 +121,25 @@ class OpenAICompatClient:
         # Normalize endpoint to have no trailing slash; we'll append provider paths.
         self._base = config.endpoint_url.rstrip("/")
         self._request_path = self._resolve_request_path(self._base)
+        self._resolved_request_path: str | None = self._request_path
         # Backward-compatible test/debug alias for the default OpenAI-compatible path.
         self._completions_path = self._request_path
 
     @property
     def resolved_config(self) -> ClientConfig | None:
         return self._resolved_config
+
+    @property
+    def auto_detect_label(self) -> str | None:
+        return self._auto_detect_label
+
+    @property
+    def auto_detect_attempts(self) -> list[dict[str, Any]]:
+        return list(self._auto_detect_attempts)
+
+    @property
+    def resolved_request_path(self) -> str | None:
+        return self._resolved_request_path
 
     def _resolve_request_path(self, base: str) -> str:
         if self._config.api_format == "anthropic":
@@ -374,6 +398,7 @@ class OpenAICompatClient:
                 resolved_client = OpenAICompatClient(resolved_config)
                 results = await resolved_client.run_probe_samples(probe_samples, client=client)
                 self._resolved_config = resolved_client.resolved_config or resolved_config
+                self._resolved_request_path = resolved_client.resolved_request_path
                 return results
 
             tasks: list[asyncio.Task[ProbeResponse]] = []
@@ -390,7 +415,8 @@ class OpenAICompatClient:
     async def _resolve_auto_config(self, client: httpx.AsyncClient) -> ClientConfig:
         candidates = _auto_detect_candidates(self._config)
         failures: list[str] = []
-        openai_successes: list[tuple[int, _AutoDetectCandidate]] = []
+        attempts: list[dict[str, Any]] = []
+        openai_successes: list[tuple[int, _AutoDetectCandidate, ClientConfig, str]] = []
 
         for index, candidate in enumerate(candidates):
             candidate_config = _config_from_candidate(self._config, candidate)
@@ -398,18 +424,41 @@ class OpenAICompatClient:
             response = (
                 await candidate_client.run_probe_samples([(_auto_detect_probe(), 0)], client=client)
             )[0]
+            attempt_record = _auto_detect_attempt_record(
+                candidate,
+                response,
+                request_url=candidate_client.resolved_request_path,
+            )
+            attempts.append(attempt_record)
             if not _auto_probe_usable(response):
                 failures.append(_format_auto_failure(candidate.label, response))
                 continue
             if candidate.api_format != "openai":
-                return candidate_config
+                self._auto_detect_label = candidate.label
+                self._auto_detect_attempts = attempts
+                self._resolved_request_path = candidate_client.resolved_request_path
+                return candidate_client._config
             score = _auto_probe_score(response)
-            openai_successes.append((score * 1000 + index, candidate))
+            openai_successes.append(
+                (
+                    score * 1000 + index,
+                    candidate,
+                    candidate_client._config,
+                    candidate_client.resolved_request_path or "",
+                )
+            )
 
         if openai_successes:
-            _, best_candidate = min(openai_successes, key=lambda item: item[0])
-            return _config_from_candidate(self._config, best_candidate)
+            _, best_candidate, best_config, best_request_url = min(
+                openai_successes, key=lambda item: item[0]
+            )
+            self._auto_detect_label = best_candidate.label
+            self._auto_detect_attempts = attempts
+            self._resolved_request_path = best_request_url
+            return best_config
 
+        self._auto_detect_label = None
+        self._auto_detect_attempts = attempts
         detail = "; ".join(failures[:6]) if failures else "no candidates"
         raise ValueError(f"auto API detection failed for model {self._config.model!r}: {detail}")
 
@@ -731,6 +780,41 @@ def _infer_model_family(model: str) -> str:
     return "openai"
 
 
+def _gemini_thinking_capability(model: str) -> _GeminiThinkingCapability:
+    lowered = model.lower()
+    if "gemini-3" in lowered:
+        level = "minimal" if "flash" in lowered else "low"
+        return _GeminiThinkingCapability(
+            thinking_mode="level",
+            none_level=level,
+            recommended_max_completion_tokens=None if "flash" in lowered else 3072,
+        )
+    return _GeminiThinkingCapability(thinking_mode="budget", none_budget=0)
+
+
+def _apply_model_capability_defaults(
+    model: str, overrides: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    if not overrides:
+        return overrides
+    normalized = dict(overrides)
+    capability = _gemini_thinking_capability(model)
+    if (
+        normalized.get("reasoning_effort") == "none"
+        and capability.recommended_max_completion_tokens is not None
+        and "max_completion_tokens" not in normalized
+    ):
+        normalized["max_completion_tokens"] = capability.recommended_max_completion_tokens
+    return normalized
+
+
+def _config_with_capability_defaults(config: ClientConfig) -> ClientConfig:
+    effective_overrides = _apply_model_capability_defaults(config.model, config.request_overrides)
+    if effective_overrides == config.request_overrides:
+        return config
+    return replace(config, request_overrides=effective_overrides)
+
+
 def _anthropic_native_candidates(config: ClientConfig) -> list[_AutoDetectCandidate]:
     auth_schemes: list[AuthScheme]
     if config.auth_scheme == "default":
@@ -767,7 +851,9 @@ def _gemini_native_candidates(config: ClientConfig) -> list[_AutoDetectCandidate
     else:
         auth_schemes = [config.auth_scheme]
     candidates: list[_AutoDetectCandidate] = []
-    base_overrides = dict(config.request_overrides or {})
+    base_overrides = dict(
+        _apply_model_capability_defaults(config.model, config.request_overrides) or {}
+    )
     for auth_scheme in auth_schemes:
         candidates.append(
             _AutoDetectCandidate(
@@ -778,23 +864,23 @@ def _gemini_native_candidates(config: ClientConfig) -> list[_AutoDetectCandidate
                 request_omit_fields=list(config.request_omit_fields or []),
             )
         )
-        if _should_try_native_gemini_thinking_zero(base_overrides):
+        if _should_try_native_gemini_thinking_override(config.model, base_overrides):
+            label_suffix, thinking_override = _gemini_native_thinking_candidate_override(
+                config.model
+            )
             candidates.append(
                 _AutoDetectCandidate(
-                    label=f"gemini/{auth_scheme}/thinking-budget-0",
+                    label=f"gemini/{auth_scheme}/{label_suffix}",
                     api_format="gemini",
                     auth_scheme=auth_scheme,
-                    request_overrides=_merge_request_overrides(
-                        base_overrides,
-                        {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}},
-                    ),
+                    request_overrides=_merge_request_overrides(base_overrides, thinking_override),
                     request_omit_fields=list(config.request_omit_fields or []),
                 )
             )
     return candidates
 
 
-def _should_try_native_gemini_thinking_zero(overrides: dict[str, Any]) -> bool:
+def _should_try_native_gemini_thinking_override(model: str, overrides: dict[str, Any]) -> bool:
     if "max_completion_tokens" in overrides:
         return False
     if overrides.get("reasoning_effort") == "none":
@@ -809,11 +895,23 @@ def _should_try_native_gemini_thinking_zero(overrides: dict[str, Any]) -> bool:
     return "thinking_config" not in overrides and "thinkingConfig" not in overrides
 
 
+def _gemini_native_thinking_candidate_override(model: str) -> tuple[str, dict[str, Any]]:
+    capability = _gemini_thinking_capability(model)
+    if capability.thinking_mode == "level":
+        return "reasoning-none", {"reasoning_effort": "none"}
+    return (
+        "thinking-budget-0",
+        {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}},
+    )
+
+
 def _openai_compatible_candidates(
     config: ClientConfig, *, family: str
 ) -> list[_AutoDetectCandidate]:
     auth_scheme: AuthScheme = config.auth_scheme if config.auth_scheme != "default" else "bearer"
-    base_overrides = dict(config.request_overrides or {})
+    base_overrides = dict(
+        _apply_model_capability_defaults(config.model, config.request_overrides) or {}
+    )
     base_omit_fields = list(config.request_omit_fields or [])
     candidates = [
         _AutoDetectCandidate(
@@ -825,15 +923,19 @@ def _openai_compatible_candidates(
         )
     ]
     if family == "gemini":
+        capability = _gemini_thinking_capability(config.model)
         thinking_level_override = _gemini_openai_thinking_none_override(config.model)
         candidates.append(
             _AutoDetectCandidate(
                 label="openai/gemini/reasoning-none",
                 api_format="openai",
                 auth_scheme=auth_scheme,
-                request_overrides=_merge_request_overrides(
-                    base_overrides,
-                    {"reasoning_effort": "none"},
+                request_overrides=_apply_model_capability_defaults(
+                    config.model,
+                    _merge_request_overrides(
+                        base_overrides,
+                        {"reasoning_effort": "none"},
+                    ),
                 ),
                 request_omit_fields=base_omit_fields,
             )
@@ -844,28 +946,32 @@ def _openai_compatible_candidates(
                     label="openai/gemini/google-thinking-level",
                     api_format="openai",
                     auth_scheme=auth_scheme,
-                    request_overrides=_merge_request_overrides(
+                    request_overrides=_apply_model_capability_defaults(
+                        config.model,
                         _merge_request_overrides(
-                            base_overrides,
-                            {"reasoning_effort": "none"},
+                            _merge_request_overrides(
+                                base_overrides,
+                                {"reasoning_effort": "none"},
+                            ),
+                            thinking_level_override,
                         ),
-                        thinking_level_override,
                     ),
                     request_omit_fields=base_omit_fields,
                 )
             )
-        candidates.append(
-            _AutoDetectCandidate(
-                label="openai/gemini/google-thinking-budget-0",
-                api_format="openai",
-                auth_scheme=auth_scheme,
-                request_overrides=_merge_request_overrides(
-                    base_overrides,
-                    {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}},
-                ),
-                request_omit_fields=base_omit_fields,
+        if capability.thinking_mode == "budget":
+            candidates.append(
+                _AutoDetectCandidate(
+                    label="openai/gemini/google-thinking-budget-0",
+                    api_format="openai",
+                    auth_scheme=auth_scheme,
+                    request_overrides=_merge_request_overrides(
+                        base_overrides,
+                        {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}},
+                    ),
+                    request_omit_fields=base_omit_fields,
+                )
             )
-        )
     elif family == "anthropic":
         candidates.append(
             _AutoDetectCandidate(
@@ -899,18 +1005,20 @@ def _dedupe_auto_candidates(candidates: list[_AutoDetectCandidate]) -> list[_Aut
 
 
 def _config_from_candidate(config: ClientConfig, candidate: _AutoDetectCandidate) -> ClientConfig:
-    return ClientConfig(
-        endpoint_url=config.endpoint_url,
-        api_key=config.api_key,
-        model=config.model,
-        concurrency=config.concurrency,
-        max_retries=config.max_retries,
-        timeout=config.timeout,
-        extra_headers=config.extra_headers,
-        request_overrides=candidate.request_overrides,
-        request_omit_fields=candidate.request_omit_fields,
-        api_format=candidate.api_format,
-        auth_scheme=candidate.auth_scheme,
+    return _config_with_capability_defaults(
+        ClientConfig(
+            endpoint_url=config.endpoint_url,
+            api_key=config.api_key,
+            model=config.model,
+            concurrency=config.concurrency,
+            max_retries=config.max_retries,
+            timeout=config.timeout,
+            extra_headers=config.extra_headers,
+            request_overrides=candidate.request_overrides,
+            request_omit_fields=candidate.request_omit_fields,
+            api_format=candidate.api_format,
+            auth_scheme=candidate.auth_scheme,
+        )
     )
 
 
@@ -926,6 +1034,30 @@ def _auto_probe_score(response: ProbeResponse) -> int:
     if reasoning > 0:
         score += min(reasoning, 5_000)
     return score
+
+
+def _auto_detect_attempt_record(
+    candidate: _AutoDetectCandidate,
+    response: ProbeResponse,
+    *,
+    request_url: str | None,
+) -> dict[str, Any]:
+    usable = _auto_probe_usable(response)
+    return {
+        "label": candidate.label,
+        "api_format": candidate.api_format,
+        "auth_scheme": candidate.auth_scheme,
+        "request_url": request_url,
+        "usable": usable,
+        "score": _auto_probe_score(response)
+        if usable and candidate.api_format == "openai"
+        else None,
+        "finish_reason": response.finish_reason,
+        "output_chars": len(response.output.strip()),
+        "output_tokens": response.output_tokens,
+        "reasoning_tokens": response.reasoning_tokens,
+        "error": response.error,
+    }
 
 
 def _format_auto_failure(label: str, response: ProbeResponse) -> str:
@@ -1005,11 +1137,10 @@ def _gemini_native_thinking_none_config(model: str) -> dict[str, Any]:
     so "low" is the closest compatible native setting. Flash supports the more
     aggressive "minimal" level.
     """
-    lowered = model.lower()
-    if "gemini-3" in lowered:
-        level = "minimal" if "flash" in lowered else "low"
-        return {"thinkingLevel": level}
-    return {"thinkingBudget": 0}
+    capability = _gemini_thinking_capability(model)
+    if capability.thinking_mode == "level":
+        return {"thinkingLevel": capability.none_level}
+    return {"thinkingBudget": capability.none_budget}
 
 
 def _gemini_openai_thinking_none_override(model: str) -> dict[str, Any]:
@@ -1020,11 +1151,10 @@ def _gemini_openai_thinking_none_override(model: str) -> dict[str, Any]:
 
 
 def _gemini_openai_thinking_none_config(model: str) -> dict[str, Any]:
-    lowered = model.lower()
-    if "gemini-3" not in lowered:
+    capability = _gemini_thinking_capability(model)
+    if capability.thinking_mode != "level":
         return {}
-    level = "minimal" if "flash" in lowered else "low"
-    return {"thinking_level": level}
+    return {"thinking_level": capability.none_level}
 
 
 def _merge_generation_config(output: dict[str, Any], config: dict[str, Any]) -> None:
@@ -1039,6 +1169,8 @@ def _camelize_gemini_thinking_config(config: dict[str, Any]) -> dict[str, Any]:
             converted["thinkingBudget"] = value
         elif key == "thinking_level":
             converted["thinkingLevel"] = value
+        elif key == "include_thoughts":
+            converted["includeThoughts"] = value
         else:
             converted[key] = value
     return converted
