@@ -144,6 +144,8 @@ def _build_manifest(fp_dir: Path, version: str, probe_set_version: str | None) -
                 "quality": quality,
                 "request_overrides": sidecar.request_overrides if sidecar else {},
                 "request_omit_fields": sidecar.request_omit_fields if sidecar else [],
+                "api_format": sidecar.api_format if sidecar else "openai",
+                "auth_scheme": sidecar.auth_scheme if sidecar else "default",
                 "verification_overrides_required": (
                     sidecar.verification_overrides_required if sidecar else False
                 ),

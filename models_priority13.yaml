@@ -6,13 +6,17 @@
 # - Plus requested additions: Claude Opus 4.7 and GPT-5.5
 #
 # Notes:
-# - Entries copied from models_boyue.yaml keep the same endpoint and request settings.
+# - Model request settings are kept aligned with models.yaml for the same
+#   canonical_id. Endpoint can still be replaced at runtime for compatibility
+#   smoke tests.
 # - The requested additions are now covered by aliases.json and have been
 #   collected successfully in out/fingerprints_boyue_priority13_final.
 
 collection:
   probe_set_version: v2
   default_budget: cheap
+  default_api_format: auto
+  default_auth_scheme: default
   reference_mode: internal_gateway
 
 models:
@@ -29,11 +33,9 @@ models:
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-3-flash-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true
 
   - canonical_id: anthropic/claude-opus-4-6
@@ -48,17 +50,20 @@ models:
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-3-pro-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
+      max_completion_tokens: 3072
+    # Some OpenAI-compatible Gemini 3 Pro gateways still emit reasoning tokens
+    # with reasoning_effort=none; keep a larger completion budget to avoid
+    # finish_reason=length dropping fingerprint samples.
     enabled: true
 
   - canonical_id: google/gemini-3.1-pro-preview
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-3.1-pro-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
       max_completion_tokens: 3072
     # Boyue does not honor thinking_budget=0 for Gemini 3.1 Pro Preview, but
@@ -69,28 +74,25 @@ models:
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-2.5-flash
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true
 
   - canonical_id: google/gemini-2.5-flash-lite
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-2.5-flash-lite
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true
 
   - canonical_id: google/gemini-2.5-pro
     endpoint: https://api.boyuerichdata.opensphereai.com/v1
     model_id: gemini-2.5-pro
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
       max_completion_tokens: 3072
     # Gemini 2.5 Pro needs a larger completion budget on Boyue; probe defaults

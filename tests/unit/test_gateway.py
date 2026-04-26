@@ -8,6 +8,8 @@ field.
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -214,10 +216,355 @@ def test_completions_path_resolution() -> None:
 
     assert path_for("https://api.openai.com/v1") == "https://api.openai.com/v1/chat/completions"
     assert path_for("https://api.openai.com/v1/") == "https://api.openai.com/v1/chat/completions"
+    assert path_for("https://api.openai.com") == "https://api.openai.com/v1/chat/completions"
     assert (
         path_for("https://gw.example.com/v1/chat/completions")
         == "https://gw.example.com/v1/chat/completions"
     )
+
+
+def test_native_path_resolution() -> None:
+    anthropic = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://api.anthropic.com",
+            api_key="x",
+            model="claude-test",
+            api_format="anthropic",
+        )
+    )
+    assert anthropic._request_path == "https://api.anthropic.com/v1/messages"
+
+    gemini = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="x",
+            model="gemini-test",
+            api_format="gemini",
+        )
+    )
+    assert (
+        gemini._request_path
+        == "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent"
+    )
+    gemini_root = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://gateway.example.com",
+            api_key="x",
+            model="gemini-test",
+            api_format="gemini",
+        )
+    )
+    assert (
+        gemini_root._request_path
+        == "https://gateway.example.com/v1/models/gemini-test:generateContent"
+    )
+
+
+@respx.mock
+async def test_anthropic_native_request_and_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["x-api-key"] == "anthropic-secret"
+        assert request.headers["anthropic-version"] == "2023-06-01"
+        payload = json.loads(request.content)
+        assert payload["model"] == "claude-test"
+        assert payload["max_tokens"] == 50
+        assert payload["messages"] == [{"role": "user", "content": "Hello?"}]
+        return httpx.Response(
+            200,
+            json={
+                "content": [{"type": "text", "text": "Anthropic ok"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 5, "output_tokens": 3},
+            },
+        )
+
+    respx.post("https://api.anthropic.com/v1/messages").mock(side_effect=handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://api.anthropic.com",
+            api_key="anthropic-secret",
+            model="claude-test",
+            api_format="anthropic",
+            auth_scheme="x-api-key",
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+
+    assert result.output == "Anthropic ok"
+    assert result.output_tokens == 3
+    assert result.finish_reason == "stop"
+    assert result.error is None
+
+
+@respx.mock
+async def test_anthropic_native_can_use_bearer_auth_and_openai_style_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer anthropic-secret"
+        assert "x-api-key" not in request.headers
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"completion_tokens": 1},
+            },
+        )
+
+    respx.post("https://gateway.example.com/v1/messages").mock(side_effect=handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://gateway.example.com/v1",
+            api_key="anthropic-secret",
+            model="claude-test",
+            api_format="anthropic",
+            auth_scheme="bearer",
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+
+    assert result.output == "ok"
+    assert result.output_tokens == 1
+    assert result.finish_reason == "stop"
+
+
+@respx.mock
+async def test_gemini_native_request_and_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["x-goog-api-key"] == "gemini-secret"
+        payload = json.loads(request.content)
+        assert payload["contents"] == [{"role": "user", "parts": [{"text": "Hello?"}]}]
+        assert payload["generationConfig"]["maxOutputTokens"] == 50
+        assert payload["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "Gemini ok"}]},
+                        "finishReason": "STOP",
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 5,
+                    "candidatesTokenCount": 3,
+                    "thoughtsTokenCount": 0,
+                },
+            },
+        )
+
+    respx.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent"
+    ).mock(side_effect=handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="gemini-secret",
+            model="gemini-test",
+            api_format="gemini",
+            request_overrides={"reasoning_effort": "none"},
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+
+    assert result.output == "Gemini ok"
+    assert result.output_tokens == 3
+    assert result.reasoning_tokens == 0
+    assert result.finish_reason == "stop"
+    assert result.error is None
+
+
+def test_gemini3_native_reasoning_none_maps_to_thinking_level() -> None:
+    pro_client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="gemini-secret",
+            model="gemini-3-pro-preview",
+            api_format="gemini",
+            request_overrides={"reasoning_effort": "none"},
+        )
+    )
+    flash_client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://generativelanguage.googleapis.com/v1beta",
+            api_key="gemini-secret",
+            model="gemini-3-flash-preview",
+            api_format="gemini",
+            request_overrides={"reasoning_effort": "none"},
+        )
+    )
+
+    pro_payload = pro_client._build_payload(_make_probe())
+    flash_payload = flash_client._build_payload(_make_probe())
+
+    assert pro_payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "low"}
+    assert flash_payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
+
+
+@respx.mock
+async def test_auto_detects_anthropic_bearer_native() -> None:
+    seen_payloads: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "x-api-key" in request.headers:
+            return httpx.Response(401, json={"error": {"message": "bad auth"}})
+        assert request.headers["Authorization"] == "Bearer anthropic-secret"
+        payload = json.loads(request.content)
+        seen_payloads.append(payload)
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {"completion_tokens": 1},
+            },
+        )
+
+    respx.post("https://gateway.example.com/v1/messages").mock(side_effect=handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://gateway.example.com/v1",
+            api_key="anthropic-secret",
+            model="claude-test",
+            api_format="auto",
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+    second_result = (await client.run_probes([_make_probe()]))[0]
+
+    assert result.output == "ok"
+    assert second_result.output == "ok"
+    assert client.resolved_config is not None
+    assert client.resolved_config.api_format == "anthropic"
+    assert client.resolved_config.auth_scheme == "bearer"
+    assert [payload["messages"][0]["content"] for payload in seen_payloads] == [
+        "Reply with exactly: ok",
+        "Hello?",
+        "Hello?",
+    ]
+
+
+@respx.mock
+async def test_auto_detects_best_openai_gemini_parameters_after_native_fails() -> None:
+    native_route = respx.post(
+        "https://gateway.example.com/v1/models/gemini-test:generateContent"
+    ).respond(400, json={"error": {"message": "native not supported"}})
+    openai_payloads: list[dict[str, object]] = []
+
+    def openai_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        openai_payloads.append(payload)
+        content = payload["messages"][0]["content"]
+        if content == "Hello?":
+            assert payload["reasoning_effort"] == "none"
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "Gemini final"}, "finish_reason": "stop"}],
+                    "usage": {
+                        "completion_tokens": 2,
+                        "completion_tokens_details": {"reasoning_tokens": 0},
+                    },
+                },
+            )
+        reasoning_tokens = 0 if payload.get("reasoning_effort") == "none" else 200
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {
+                    "completion_tokens": 1,
+                    "completion_tokens_details": {"reasoning_tokens": reasoning_tokens},
+                },
+            },
+        )
+
+    respx.post("https://gateway.example.com/v1/chat/completions").mock(side_effect=openai_handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://gateway.example.com/v1",
+            api_key="gemini-secret",
+            model="gemini-test",
+            api_format="auto",
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+
+    assert native_route.call_count == 4
+    assert result.output == "Gemini final"
+    assert client.resolved_config is not None
+    assert client.resolved_config.api_format == "openai"
+    assert client.resolved_config.auth_scheme == "bearer"
+    assert client.resolved_config.request_overrides == {"reasoning_effort": "none"}
+    assert openai_payloads[-1]["messages"][0]["content"] == "Hello?"
+
+
+@respx.mock
+async def test_auto_detects_openai_gemini3_thinking_level_candidate() -> None:
+    respx.post(
+        "https://gateway.example.com/v1/models/gemini-3-pro-preview:generateContent"
+    ).respond(400, json={"error": {"message": "native not supported"}})
+    openai_payloads: list[dict[str, object]] = []
+
+    def openai_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        openai_payloads.append(payload)
+        google_body = payload.get("google", {})
+        thinking_config = google_body.get("thinking_config", {})
+        reasoning_tokens = 0 if thinking_config.get("thinking_level") == "low" else 200
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": {
+                    "completion_tokens": 1,
+                    "completion_tokens_details": {"reasoning_tokens": reasoning_tokens},
+                },
+            },
+        )
+
+    respx.post("https://gateway.example.com/v1/chat/completions").mock(side_effect=openai_handler)
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://gateway.example.com/v1",
+            api_key="gemini-secret",
+            model="gemini-3-pro-preview",
+            api_format="auto",
+        )
+    )
+
+    result = (await client.run_probes([_make_probe()]))[0]
+
+    assert result.output == "ok"
+    assert client.resolved_config is not None
+    assert client.resolved_config.api_format == "openai"
+    assert client.resolved_config.request_overrides == {
+        "reasoning_effort": "none",
+        "extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}},
+    }
+    assert openai_payloads[-1]["google"]["thinking_config"] == {"thinking_level": "low"}
+
+
+def test_openai_extra_body_is_expanded_into_raw_request_body() -> None:
+    client = OpenAICompatClient(
+        ClientConfig(
+            endpoint_url="https://fake.example.com/v1",
+            api_key="sk-test-placeholder",
+            model="gemini-3-pro-preview",
+            request_overrides={
+                "reasoning_effort": "none",
+                "extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}},
+            },
+        )
+    )
+
+    payload = client._build_payload(_make_probe())
+
+    assert payload["reasoning_effort"] == "none"
+    assert payload["google"]["thinking_config"] == {"thinking_level": "low"}
+    assert "extra_body" not in payload
 
 
 def test_request_overrides_merge_nested_fields() -> None:

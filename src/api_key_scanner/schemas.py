@@ -11,6 +11,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Budget = Literal["cheap", "standard"]
+ApiFormat = Literal["openai", "anthropic", "gemini", "auto"]
+AuthScheme = Literal["default", "bearer", "x-api-key", "x-goog-api-key"]
 VerdictLabel = Literal["ok", "suspicious", "likely_substituted", "inconclusive"]
 Confidence = Literal["high", "medium", "low"]
 Severity = Literal["info", "warn", "alarm"]
@@ -186,6 +188,8 @@ class CollectedFingerprintSidecar(BaseModel):
     reference_mode: ReferenceMode
     request_overrides: dict[str, Any] = Field(default_factory=dict)
     request_omit_fields: list[str] = Field(default_factory=list)
+    api_format: ApiFormat = "openai"
+    auth_scheme: AuthScheme = "default"
     verification_overrides_required: bool = False
     expected_num_probes: int
     expected_samples: int
@@ -218,6 +222,8 @@ class ModelManifestEntry(BaseModel):
     quality: ModelQualityMetadata = Field(default_factory=ModelQualityMetadata)
     request_overrides: dict[str, Any] = Field(default_factory=dict)
     request_omit_fields: list[str] = Field(default_factory=list)
+    api_format: ApiFormat = "openai"
+    auth_scheme: AuthScheme = "default"
     verification_overrides_required: bool = False
 
     @field_validator("request_overrides")

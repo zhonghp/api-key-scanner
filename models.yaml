@@ -14,7 +14,8 @@
 # Field semantics:
 # - canonical_id: must be in aliases.json's canonical[] list; the file
 #                 written is fingerprints/<vendor>/<model>.jsonl
-# - endpoint:     OpenAI-compatible base URL
+# - endpoint:     gateway/provider base URL; api_format=auto will probe native
+#                 Claude/Gemini paths before falling back to /chat/completions
 # - model_id:     the string this endpoint accepts in the `model` field
 # - key_env:      NAME of env var holding the API key (NOT the key itself)
 # - budget:       cheap | standard (see probes.py _BUDGET_CONFIG)
@@ -37,6 +38,10 @@ collection:
   # a per-entry basis with `budget: standard` where a specific model
   # warrants the full protocol.
   default_budget: cheap
+  # Default to protocol auto-detection so the same model config can move
+  # between OpenAI-compatible gateways and native Claude/Gemini endpoints.
+  default_api_format: auto
+  default_auth_scheme: default
 
 models:
   # ---- OpenAI family ---------------------------------------------------------
@@ -314,17 +319,20 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-pro-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
+      max_completion_tokens: 3072
+    # SenseAI's OpenAI-compatible Gemini 3 Pro path still emits reasoning tokens
+    # with reasoning_effort=none, so keep a larger completion budget to avoid
+    # finish_reason=length dropping fingerprint samples.
     enabled: true
 
   - canonical_id: google/gemini-3.1-pro-preview
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3.1-pro-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
       max_completion_tokens: 3072
     # Some OpenAI-compatible Gemini gateways do not honor thinking_budget=0 for
@@ -335,6 +343,7 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-pro
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
       max_completion_tokens: 3072
     # Some OpenAI-compatible Gemini gateways still report reasoning_tokens with
@@ -345,28 +354,25 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-3-flash-preview
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true
 
   - canonical_id: google/gemini-2.5-flash
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-flash
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true
 
   - canonical_id: google/gemini-2.0-flash
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.0-flash
     key_env: OPENAI_API_KEY
+    api_format: auto
     # disabled on Boyue: "Multi-modal output is not supported" for text probes
     enabled: false
 
@@ -374,9 +380,7 @@ models:
     endpoint: https://aigateway.edgecloudapp.com/v1/f194fd69361cd590f1fa136c9c90eca1/senseai
     model_id: gemini-2.5-flash-lite
     key_env: OPENAI_API_KEY
+    api_format: auto
     request_overrides:
-      extra_body:
-        google:
-          thinking_config:
-            thinking_budget: 0
+      reasoning_effort: none
     enabled: true

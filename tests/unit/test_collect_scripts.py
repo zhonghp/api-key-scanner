@@ -105,6 +105,8 @@ def test_generate_manifest_produces_valid_json(tmp_path: Path) -> None:
     assert entry["provenance"]["reference_mode"] == "vendor_direct"
     assert "endpoint" not in entry["provenance"]
     assert entry["request_omit_fields"] == []
+    assert entry["api_format"] == "openai"
+    assert entry["auth_scheme"] == "default"
     assert manifest["probes_snapshot"] == probes_mod.bundled_probes_snapshot("v2")
 
 
@@ -456,6 +458,64 @@ models:
     assert "unsupported field 'messages'" in result.stderr
 
 
+def test_collect_all_rejects_invalid_api_format(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://example.com/v1
+    model_id: gpt-4o
+    key_env: OPENAI_API_KEY
+    api_format: unsupported
+""",
+        encoding="utf-8",
+    )
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(tmp_path / "out"),
+        "--env-file",
+        "/dev/null",
+    )
+    assert result.returncode == 2
+    assert "api_format must be one of" in result.stderr
+
+
+def test_collect_all_rejects_invalid_auth_scheme(tmp_path: Path) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: openai/gpt-4o
+    endpoint: https://example.com/v1
+    model_id: gpt-4o
+    key_env: OPENAI_API_KEY
+    auth_scheme: unsupported
+""",
+        encoding="utf-8",
+    )
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(tmp_path / "out"),
+        "--env-file",
+        "/dev/null",
+    )
+    assert result.returncode == 2
+    assert "auth_scheme must be one of" in result.stderr
+
+
 def test_collect_all_resumes_complete_fingerprint_without_key(tmp_path: Path) -> None:
     cfg = tmp_path / "models.yaml"
     cfg.write_text(
@@ -517,7 +577,85 @@ models:
     assert sidecar["expected_samples"] == 18
     assert sidecar["missing_probe_ids"] == []
     assert sidecar["incomplete_probe_ids"] == []
+    assert sidecar["api_format"] == "auto"
+    assert sidecar["auth_scheme"] == "default"
     assert "existing met-v2-001 #0" in jsonl.read_text(encoding="utf-8")
+
+
+def test_collect_all_resuming_complete_fingerprint_preserves_sidecar_protocol(
+    tmp_path: Path,
+) -> None:
+    cfg = tmp_path / "models.yaml"
+    cfg.write_text(
+        """
+collection:
+  probe_set_version: v2
+  default_budget: cheap
+models:
+  - canonical_id: google/gemini-2.5-flash
+    endpoint: https://example.com/v1
+    model_id: gemini-2.5-flash
+    key_env: COLLECT_ALL_RESUME_TEST_KEY_SHOULD_NOT_EXIST
+    enabled: true
+""",
+        encoding="utf-8",
+    )
+    out_dir = tmp_path / "out"
+    jsonl = out_dir / "google" / "gemini-2.5-flash.jsonl"
+    jsonl.parent.mkdir(parents=True)
+    with jsonl.open("w", encoding="utf-8") as f:
+        for probe in probes_mod.load_probes("cheap"):
+            for sample_index in range(probe.num_samples):
+                f.write(
+                    json.dumps(
+                        {
+                            "probe_id": probe.probe_id,
+                            "sample_index": sample_index,
+                            "output": f"existing {probe.probe_id} #{sample_index}",
+                            "output_tokens": 5,
+                            "response_ms": 100,
+                            "ttft_ms": None,
+                            "system_fingerprint": None,
+                            "finish_reason": "stop",
+                            "reasoning_tokens": None,
+                            "collected_at": "2026-04-25T00:00:00+00:00",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n"
+                )
+    cheap_probes = probes_mod.load_probes("cheap")
+    per_probe_samples = {probe.probe_id: probe.num_samples for probe in cheap_probes}
+    _write_sidecar(
+        jsonl,
+        canonical_id="google/gemini-2.5-flash",
+        model_id="gemini-2.5-flash",
+        request_overrides={"reasoning_effort": "none"},
+        api_format="gemini",
+        auth_scheme="x-goog-api-key",
+        verification_overrides_required=True,
+        expected_samples=18,
+        actual_samples=18,
+        per_probe_expected_samples=per_probe_samples,
+        per_probe_actual_samples=per_probe_samples,
+    )
+
+    result = _run_script(
+        "collect_all.py",
+        "--config",
+        str(cfg),
+        "--out",
+        str(out_dir),
+        "--env-file",
+        "/dev/null",
+        "--require-complete",
+    )
+
+    assert result.returncode == 0, result.stderr
+    sidecar = json.loads(jsonl.with_suffix(".meta.json").read_text(encoding="utf-8"))
+    assert sidecar["api_format"] == "gemini"
+    assert sidecar["auth_scheme"] == "x-goog-api-key"
+    assert sidecar["request_overrides"] == {"reasoning_effort": "none"}
 
 
 def test_collect_all_rejects_low_quality_resume_sample_without_key(tmp_path: Path) -> None:

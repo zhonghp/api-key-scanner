@@ -32,6 +32,8 @@ from api_key_scanner.fingerprint_fetch import FingerprintFetchError
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
 from api_key_scanner.probes import FingerprintDataMissingError
 from api_key_scanner.schemas import (
+    ApiFormat,
+    AuthScheme,
     Budget,
     DetectorResult,
     Evidence,
@@ -148,6 +150,8 @@ async def list_supported_models() -> dict[str, Any]:
                     "verification_overrides_required": entry.verification_overrides_required,
                     "request_overrides": entry.request_overrides,
                     "request_omit_fields": entry.request_omit_fields,
+                    "api_format": entry.api_format,
+                    "auth_scheme": entry.auth_scheme,
                     "budget": entry.quality.budget,
                     "expected_samples": entry.quality.expected_samples,
                     "actual_samples": entry.quality.actual_samples,
@@ -185,6 +189,8 @@ async def verify_gateway(
     include_raw_responses: bool = False,
     request_overrides: dict[str, Any] | None = None,
     request_omit_fields: list[str] | None = None,
+    api_format: ApiFormat | None = None,
+    auth_scheme: AuthScheme | None = None,
 ) -> dict[str, Any]:
     """Verify whether an LLM API gateway is actually serving the claimed model.
 
@@ -207,6 +213,11 @@ async def verify_gateway(
         request_omit_fields: Payload fields to omit for endpoints that reject
             some OpenAI-compatible defaults. Required reference omissions from
             MANIFEST.json are applied automatically.
+        api_format: Wire protocol to use. Defaults to "auto", which probes
+            native Claude/Gemini first and falls back to OpenAI-compatible
+            candidates. Supported values: "openai", "anthropic", "gemini", "auto".
+        auth_scheme: API key transport to use. Defaults to the chosen api_format's
+            native default, or to the reference manifest value when available.
 
     Returns:
         Verdict dict with trust_score (0-1) and detailed evidence.
@@ -316,6 +327,8 @@ async def verify_gateway(
             model=claimed_model,
             request_overrides=effective_request_overrides,
             request_omit_fields=effective_request_omit_fields,
+            api_format=api_format or "auto",
+            auth_scheme=auth_scheme or "default",
         )
     )
     try:

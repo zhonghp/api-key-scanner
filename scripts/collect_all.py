@@ -34,6 +34,8 @@ from api_key_scanner import probes as probes_mod
 from api_key_scanner.aliases import UnknownModelError
 from api_key_scanner.gateway import ClientConfig, OpenAICompatClient
 from api_key_scanner.schemas import (
+    ApiFormat,
+    AuthScheme,
     Budget,
     CollectedFingerprintSidecar,
     FingerprintEntry,
@@ -55,6 +57,8 @@ class _CollectionDefaults:
     default_budget: Budget
     probe_set_version: str
     reference_mode: ReferenceMode
+    default_api_format: ApiFormat
+    default_auth_scheme: AuthScheme
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,8 @@ class _ModelTarget:
     budget: Budget
     request_overrides: dict[str, Any]
     request_omit_fields: list[str]
+    api_format: ApiFormat
+    auth_scheme: AuthScheme
     reference_mode: ReferenceMode
     notes: str | None = None
 
@@ -111,6 +117,18 @@ def _normalize_reference_mode(raw: object) -> ReferenceMode:
     raise ValueError("reference_mode must be one of: vendor_direct, internal_gateway, unknown")
 
 
+def _normalize_api_format(raw: object) -> ApiFormat:
+    if raw in ("openai", "anthropic", "gemini", "auto"):
+        return raw
+    raise ValueError("api_format must be one of: openai, anthropic, gemini, auto")
+
+
+def _normalize_auth_scheme(raw: object) -> AuthScheme:
+    if raw in ("default", "bearer", "x-api-key", "x-goog-api-key"):
+        return raw
+    raise ValueError("auth_scheme must be one of: default, bearer, x-api-key, x-goog-api-key")
+
+
 def _load_config(path: Path) -> tuple[list[_ModelTarget], _CollectionDefaults]:
     """Parse models.yaml into enabled targets plus collection defaults."""
     with path.open("r", encoding="utf-8") as f:
@@ -123,6 +141,10 @@ def _load_config(path: Path) -> tuple[list[_ModelTarget], _CollectionDefaults]:
             "probe_set_version", probes_mod.current_probe_set_version()
         ),
         reference_mode=_normalize_reference_mode(collection.get("reference_mode", "unknown")),
+        default_api_format=_normalize_api_format(collection.get("default_api_format", "auto")),
+        default_auth_scheme=_normalize_auth_scheme(
+            collection.get("default_auth_scheme", "default")
+        ),
     )
 
     targets: list[_ModelTarget] = []
@@ -155,6 +177,12 @@ def _load_config(path: Path) -> tuple[list[_ModelTarget], _CollectionDefaults]:
                 budget=entry.get("budget", defaults.default_budget),
                 request_overrides=request_overrides,
                 request_omit_fields=request_omit_fields,
+                api_format=_normalize_api_format(
+                    entry.get("api_format", defaults.default_api_format)
+                ),
+                auth_scheme=_normalize_auth_scheme(
+                    entry.get("auth_scheme", defaults.default_auth_scheme)
+                ),
                 reference_mode=_normalize_reference_mode(
                     entry.get("reference_mode", defaults.reference_mode)
                 ),
@@ -408,6 +436,18 @@ def _write_rejected_entries(out_file: Path, rejected_entries: list[dict[str, Any
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _load_existing_sidecar(out_file: Path) -> CollectedFingerprintSidecar | None:
+    meta_file = _meta_path_for(out_file)
+    if not meta_file.exists():
+        return None
+    try:
+        return CollectedFingerprintSidecar.model_validate_json(
+            meta_file.read_text(encoding="utf-8")
+        )
+    except Exception:
+        return None
+
+
 def _build_success_entry(response: ProbeResponse, *, collected_at: str) -> dict[str, Any]:
     return {
         "probe_id": response.probe_id,
@@ -562,6 +602,7 @@ async def _collect_one(
     print(
         f"[collect] {target.canonical_id}: {target.endpoint} "
         f"model={target.model_id} budget={target.budget} "
+        f"api_format={target.api_format} auth_scheme={target.auth_scheme} "
         f"({len(probes)} probes x {expected_samples} samples; "
         f"resume={'on' if resume else 'off'}, "
         f"existing={len(snapshot.entries_by_key)}, missing={len(missing_probe_samples)})",
@@ -583,6 +624,16 @@ async def _collect_one(
     sample_failures: list[_SampleFailure] = []
     rejected_entries: list[dict[str, Any]] = list(snapshot.rejected_log_entries)
     skipped_for_missing_key = False
+    effective_request_overrides = target.request_overrides
+    effective_request_omit_fields = target.request_omit_fields
+    effective_api_format = target.api_format
+    effective_auth_scheme = target.auth_scheme
+    existing_sidecar = _load_existing_sidecar(out_file) if resume else None
+    if existing_sidecar is not None:
+        effective_request_overrides = existing_sidecar.request_overrides
+        effective_request_omit_fields = existing_sidecar.request_omit_fields
+        effective_api_format = existing_sidecar.api_format
+        effective_auth_scheme = existing_sidecar.auth_scheme
     if missing_probe_samples:
         key = os.environ.get(target.key_env)
         if not key:
@@ -602,6 +653,8 @@ async def _collect_one(
                     max_retries=3,
                     request_overrides=target.request_overrides,
                     request_omit_fields=target.request_omit_fields,
+                    api_format=target.api_format,
+                    auth_scheme=target.auth_scheme,
                 )
             )
             (
@@ -614,6 +667,11 @@ async def _collect_one(
                 quality_policy,
                 canonical_id=target.canonical_id,
             )
+            if client.resolved_config is not None:
+                effective_request_overrides = client.resolved_config.request_overrides or {}
+                effective_request_omit_fields = client.resolved_config.request_omit_fields or []
+                effective_api_format = client.resolved_config.api_format
+                effective_auth_scheme = client.resolved_config.auth_scheme
             rejected_entries.extend(collected_rejected_entries)
     elif resume:
         print(
@@ -680,10 +738,15 @@ async def _collect_one(
             "budget": target.budget,
             "probe_set_version": declared_probe_set_version,
             "reference_mode": target.reference_mode,
-            "request_overrides": target.request_overrides,
-            "request_omit_fields": target.request_omit_fields,
+            "request_overrides": effective_request_overrides,
+            "request_omit_fields": effective_request_omit_fields,
+            "api_format": effective_api_format,
+            "auth_scheme": effective_auth_scheme,
             "verification_overrides_required": bool(
-                target.request_overrides or target.request_omit_fields
+                effective_request_overrides
+                or effective_request_omit_fields
+                or effective_api_format != "openai"
+                or effective_auth_scheme != "default"
             ),
             "expected_num_probes": len(probes),
             "expected_samples": expected_samples,
