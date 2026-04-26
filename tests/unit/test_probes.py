@@ -149,6 +149,13 @@ def test_v2_met_probes_all_tagged_d2() -> None:
             )
 
 
+def test_v2_met_probes_default_to_512_max_tokens() -> None:
+    probes = probes_mod.load_probes("standard")
+    met = [p for p in probes if p.probe_id.startswith("met-v2-")]
+    assert len(met) == 25
+    assert {p.params.max_tokens for p in met} == {512}
+
+
 def test_v2_llmmap_and_met_probe_ids_dont_cross_tag() -> None:
     """An llmmap probe tagged d2 would silently feed into MET (and vice versa);
     guard against that config error at test time."""

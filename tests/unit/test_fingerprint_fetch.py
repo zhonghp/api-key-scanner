@@ -17,6 +17,7 @@ import pytest
 import respx
 
 from api_key_scanner import fingerprint_fetch
+from api_key_scanner import probes as probes_mod
 from api_key_scanner.fingerprint_fetch import (
     FetchResult,
     FingerprintFetchError,
@@ -58,7 +59,7 @@ def stub_sigstore(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _build_manifest(
-    models: dict[str, bytes], *, probe_set_version: str = "v1"
+    models: dict[str, bytes], *, probe_set_version: str = "v2"
 ) -> tuple[bytes, dict[str, bytes]]:
     """Return (manifest_bytes, asset_name -> content) for a toy release."""
     manifest: dict[str, object] = {
@@ -71,12 +72,13 @@ def _build_manifest(
                 "file": f"{canonical}.jsonl",
                 "sha256": hashlib.sha256(content).hexdigest(),
                 "size_bytes": len(content),
+                "num_probes": 1,
                 "num_samples": 1,
                 "provenance": {"collector_version": "0.1.0"},
             }
             for canonical, content in models.items()
         },
-        "probes_snapshot": {},
+        "probes_snapshot": probes_mod.bundled_probes_snapshot(probe_set_version),
     }
     assets = {f"{canonical.split('/')[-1]}.jsonl": content for canonical, content in models.items()}
     manifest_bytes = json.dumps(manifest).encode()
